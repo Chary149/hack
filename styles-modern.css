@@ -1,0 +1,608 @@
+/* PhishGuard Extension Styles */
+
+/* Modern Warning Overlay */
+.phishguard-threat-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.9);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  backdrop-filter: blur(5px);
+}
+
+.phishguard-threat-overlay.phishguard-show {
+  opacity: 1;
+}
+
+.phishguard-modern-warning {
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  border-radius: 20px;
+  padding: 0;
+  max-width: 700px;
+  width: 90%;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.4);
+  position: relative;
+  border: 2px solid #e9ecef;
+  animation: slideIn 0.4s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-50px) scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* Header Section */
+.phishguard-header-section {
+  background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+  color: white;
+  padding: 30px;
+  border-radius: 18px 18px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.phishguard-header-section::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+  animation: pulse 3s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.phishguard-risk-indicator {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  flex-shrink: 0;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+  position: relative;
+  z-index: 2;
+}
+
+.phishguard-header-content {
+  flex: 1;
+  position: relative;
+  z-index: 2;
+}
+
+.phishguard-title {
+  font-size: 28px;
+  font-weight: 800;
+  margin: 0 0 10px 0;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  line-height: 1.2;
+}
+
+.phishguard-subtitle {
+  font-size: 16px;
+  margin: 0 0 15px 0;
+  opacity: 0.95;
+  line-height: 1.4;
+}
+
+.phishguard-url-display {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+/* Details Section */
+.phishguard-details-section {
+  padding: 25px 30px;
+  background: #ffffff;
+}
+
+.phishguard-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+
+.phishguard-info-card {
+  background: #f8f9fa;
+  padding: 20px;
+  border-radius: 12px;
+  border-left: 4px solid #007bff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s ease;
+}
+
+.phishguard-info-card:hover {
+  transform: translateY(-2px);
+}
+
+.phishguard-info-card h3 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: #6c757d;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.phishguard-info-card p {
+  margin: 0;
+  font-size: 16px;
+  color: #495057;
+  font-weight: 500;
+}
+
+/* Threats Section */
+.phishguard-threats-section {
+  padding: 0 30px 25px;
+  background: #ffffff;
+}
+
+.phishguard-threats-section h3 {
+  color: #dc3545;
+  font-size: 20px;
+  margin-bottom: 20px;
+  font-weight: 700;
+}
+
+.phishguard-threat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 15px;
+}
+
+.phishguard-threat-item {
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  align-items: flex-start;
+  gap: 15px;
+  transition: all 0.2s ease;
+}
+
+.phishguard-threat-item:hover {
+  background: #ffecb5;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.phishguard-threat-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+}
+
+.phishguard-threat-content h4 {
+  margin: 0 0 8px 0;
+  color: #856404;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.phishguard-threat-content p {
+  margin: 0;
+  color: #856404;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Consequences Section */
+.phishguard-consequences-section {
+  padding: 0 30px 25px;
+  background: #f8f9fa;
+}
+
+.phishguard-consequences-section h3 {
+  color: #dc3545;
+  font-size: 20px;
+  margin-bottom: 20px;
+  font-weight: 700;
+}
+
+.phishguard-consequences-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.phishguard-consequence-item {
+  background: white;
+  padding: 15px 20px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  transition: all 0.2s ease;
+}
+
+.phishguard-consequence-item:hover {
+  background: #fff5f5;
+  transform: translateX(5px);
+}
+
+.phishguard-consequence-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.phishguard-consequence-item span:last-child {
+  color: #495057;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+/* Actions Section */
+.phishguard-actions-section {
+  padding: 25px 30px;
+  background: white;
+  border-radius: 0 0 18px 18px;
+}
+
+.phishguard-action-buttons {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
+}
+
+.phishguard-secondary-actions {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.phishguard-btn {
+  padding: 14px 28px;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 160px;
+  position: relative;
+  overflow: hidden;
+}
+
+.phishguard-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  transition: left 0.5s ease;
+}
+
+.phishguard-btn:hover::before {
+  left: 100%;
+}
+
+.phishguard-btn-leave {
+  background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+  color: white;
+  box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
+}
+
+.phishguard-btn-leave:hover {
+  background: linear-gradient(135deg, #c82333 0%, #a02622 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4);
+}
+
+.phishguard-btn-learn {
+  background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+  color: white;
+  box-shadow: 0 4px 15px rgba(0, 123, 255, 0.3);
+}
+
+.phishguard-btn-learn:hover {
+  background: linear-gradient(135deg, #0056b3 0%, #004085 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 123, 255, 0.4);
+}
+
+.phishguard-btn-secondary {
+  background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
+  color: #212529;
+  box-shadow: 0 4px 15px rgba(255, 193, 7, 0.3);
+}
+
+.phishguard-btn-secondary:hover {
+  background: linear-gradient(135deg, #e0a800 0%, #d39e00 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 193, 7, 0.4);
+}
+
+.phishguard-btn-outline {
+  background: transparent;
+  color: #6c757d;
+  border: 2px solid #6c757d;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.phishguard-btn-outline:hover {
+  background: #6c757d;
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+}
+
+/* Footer */
+.phishguard-footer {
+  background: #f8f9fa;
+  padding: 15px 30px;
+  border-radius: 0 0 18px 18px;
+  text-align: center;
+  border-top: 1px solid #e9ecef;
+}
+
+.phishguard-footer p {
+  margin: 0;
+  color: #6c757d;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Mini warning styles */
+#phishguard-mini-warning {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
+  color: #212529;
+  padding: 15px 20px;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+  z-index: 9999;
+  max-width: 320px;
+  font-size: 14px;
+  line-height: 1.5;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  animation: slideInRight 0.4s ease-out;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.mini-warning-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mini-close {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #212529;
+  padding: 4px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.mini-close:hover {
+  background: rgba(255, 255, 255, 0.4);
+  transform: scale(1.1);
+}
+
+/* Credential alert styles */
+#phishguard-credential-alert {
+  position: fixed;
+  top: 100px;
+  right: 20px;
+  background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+  color: white;
+  padding: 18px 24px;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  z-index: 9999;
+  max-width: 380px;
+  font-size: 15px;
+  line-height: 1.5;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  animation: slideInRight 0.4s ease-out 0.2s both;
+}
+
+.credential-alert-content {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.credential-alert-close {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: white;
+  padding: 4px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.credential-alert-close:hover {
+  background: rgba(255, 255, 255, 0.4);
+  transform: scale(1.1);
+}
+
+/* Keylogger blocked notification */
+.phishguard-keylogger-blocked {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+  color: white;
+  padding: 15px 25px;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  z-index: 9999;
+  font-size: 15px;
+  font-weight: 600;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  animation: slideInBottom 0.4s ease-out;
+}
+
+@keyframes slideInBottom {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Form warning */
+.phishguard-form-warning {
+  position: fixed;
+  bottom: 100px;
+  right: 20px;
+  background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+  color: white;
+  padding: 15px 25px;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  z-index: 9999;
+  font-size: 15px;
+  font-weight: 600;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  animation: slideInBottom 0.4s ease-out 0.2s both;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .phishguard-modern-warning {
+    max-width: 95%;
+    max-height: 90vh;
+  }
+
+  .phishguard-header-section {
+    padding: 20px;
+    flex-direction: column;
+    text-align: center;
+    gap: 15px;
+  }
+
+  .phishguard-risk-indicator {
+    width: 60px;
+    height: 60px;
+    font-size: 24px;
+  }
+
+  .phishguard-title {
+    font-size: 24px;
+  }
+
+  .phishguard-info-grid {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
+
+  .phishguard-threat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .phishguard-action-buttons,
+  .phishguard-secondary-actions {
+    flex-direction: column;
+  }
+
+  .phishguard-btn {
+    width: 100%;
+    min-width: auto;
+  }
+
+  .phishguard-consequences-list {
+    gap: 10px;
+  }
+
+  .phishguard-consequence-item {
+    padding: 12px 16px;
+  }
+
+  #phishguard-mini-warning,
+  #phishguard-credential-alert {
+    max-width: 90%;
+    right: 5%;
+    left: 5%;
+  }
+}
+
+@media (max-width: 480px) {
+  .phishguard-modern-warning {
+    margin: 10px;
+    max-height: 95vh;
+  }
+
+  .phishguard-header-section {
+    padding: 15px;
+  }
+
+  .phishguard-details-section,
+  .phishguard-threats-section,
+  .phishguard-consequences-section,
+  .phishguard-actions-section {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .phishguard-footer {
+    padding: 12px 20px;
+  }
+}

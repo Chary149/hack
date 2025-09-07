@@ -21,7 +21,7 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "css": ["styles.css"],
+      "css": ["styles-modern.css"],
       "run_at": "document_start"
     }
   ],
@@ -43,7 +43,7 @@
   },
   "web_accessible_resources": [
   {
-    "resources": ["warning.html", "education.html", "styles.css", "data.json"],
+    "resources": ["warning.html", "education.html", "styles-modern.css", "data.json", "benign.json"],
     "matches": ["<all_urls>"]
   }
 ]

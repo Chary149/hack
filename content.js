@@ -2,14 +2,292 @@ class PhishGuardProtection {
   constructor() {
     this.keyloggerBlocked = false;
     this.threatInfo = null;
+    this.riskScore = 0;
+    this.benignData = new Set();
     this.init();
   }
 
   async init() {
+    // Load benign data first
+    await this.loadBenignData();
+
+    // Step 1: Compute risk score immediately on page load
+    this.computeRiskScore();
+
     await this.checkCurrentSite();
     this.setupKeyloggerProtection();
     this.setupFormProtection();
     this.monitorDOMChanges();
+  }
+
+  async loadBenignData() {
+    try {
+      const response = await fetch(chrome.runtime.getURL('benign.json'));
+      const data = await response.json();
+      this.benignData = new Set(data.map(url => new URL(url).hostname));
+      console.log('Benign data loaded:', this.benignData.size, 'entries');
+    } catch (error) {
+      console.error('Failed to load benign data:', error);
+      // Fallback to hardcoded
+      const fallback = [
+        'google.com',
+        'youtube.com',
+        'facebook.com',
+        'amazon.com',
+        'wikipedia.org',
+        'twitter.com',
+        'linkedin.com',
+        'instagram.com',
+        'reddit.com',
+        'netflix.com',
+        'paypal.com',
+        'ebay.com',
+        'craigslist.org',
+        'yahoo.com',
+        'bing.com',
+        'duckduckgo.com',
+        'mozilla.org',
+        'chrome.google.com',
+        'addons.mozilla.org'
+      ];
+      this.benignData = new Set(fallback);
+    }
+  }
+
+  // Step 1: Compute risk score from URL lexical features and DOM cues
+  computeRiskScore() {
+    let score = 0;
+    const url = window.location.href;
+    const hostname = window.location.hostname;
+
+    // Check if domain is in trusted whitelist
+    if (this.isTrustedDomain(hostname)) {
+      this.riskScore = 0;
+      console.log(`PhishGuard: Trusted domain ${hostname} - risk score: 0`);
+      return;
+    }
+
+    // URL Lexical Features
+    score += this.analyzeURLFeatures(url, hostname);
+
+    // DOM Cues
+    score += this.analyzeDOMCues();
+
+    this.riskScore = Math.min(score, 100); // Cap at 100
+
+    console.log(`PhishGuard: Risk score computed: ${this.riskScore}`);
+
+    // Step 2: If score exceeds threshold or sensitive patterns present, check Safe Browsing
+    if (this.riskScore >= 50 || this.hasSensitivePatterns()) {
+      this.checkSafeBrowsing(url);
+    }
+  }
+
+  isTrustedDomain(hostname) {
+    // Check if hostname matches any benign domain
+    return this.benignData.has(hostname) || Array.from(this.benignData).some(domain => hostname.endsWith('.' + domain));
+  }
+
+  analyzeURLFeatures(url, hostname) {
+    let score = 0;
+
+    // Domain length (longer domains are suspicious)
+    if (hostname.length > 25) score += 10;
+    if (hostname.length > 35) score += 15;
+
+    // Number of subdomains (reduce penalty for legitimate sites)
+    const subdomainCount = hostname.split('.').length - 2;
+    if (subdomainCount > 2) score += subdomainCount * 3;
+
+    // Suspicious TLDs
+    const suspiciousTLDs = ['.tk', '.ml', '.ga', '.cf', '.xyz', '.top', '.club', '.online', '.site', '.store', '.tech', '.live', '.icu', '.work', '.click', '.link'];
+    if (suspiciousTLDs.some(tld => hostname.endsWith(tld))) score += 20;
+
+    // Keywords in domain (remove legitimate ones)
+    const suspiciousKeywords = ['phish', 'fake', 'scam', 'hack', 'exploit', 'malware', 'virus', 'trojan'];
+    if (suspiciousKeywords.some(keyword => hostname.includes(keyword))) score += 15;
+
+    // IP address in URL
+    if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) score += 25;
+
+    // Leet speak
+    if (/[a-z]+[0-9]+[a-z]*|[a-z]*[0-9]+[a-z]+/.test(hostname)) score += 10;
+
+    // HTTPS check (significant bonus for HTTPS)
+    if (url.startsWith('https://')) score -= 30;
+
+    return score;
+  }
+
+  analyzeDOMCues() {
+    let score = 0;
+
+    // Password fields
+    const passwordFields = document.querySelectorAll('input[type="password"]');
+    score += passwordFields.length * 10;
+
+    // Login forms
+    const forms = document.querySelectorAll('form');
+    forms.forEach(form => {
+      const inputs = form.querySelectorAll('input');
+      let hasUsername = false;
+      let hasPassword = false;
+
+      inputs.forEach(input => {
+        const type = input.type.toLowerCase();
+        const name = input.name?.toLowerCase() || '';
+        const placeholder = input.placeholder?.toLowerCase() || '';
+
+        if (type === 'password' || name.includes('pass') || placeholder.includes('password')) hasPassword = true;
+        if (type === 'email' || type === 'text' || name.includes('user') || name.includes('email') || placeholder.includes('email') || placeholder.includes('username')) hasUsername = true;
+      });
+
+      if (hasUsername && hasPassword) score += 15;
+    });
+
+    // Suspicious scripts or iframes
+    const scripts = document.querySelectorAll('script[src]');
+    scripts.forEach(script => {
+      const src = script.src.toLowerCase();
+      if (src.includes('malicious') || src.includes('suspicious')) score += 10;
+    });
+
+    return score;
+  }
+
+  hasSensitivePatterns() {
+    // Check for sensitive patterns that warrant Safe Browsing check
+    const sensitivePatterns = [
+      /password/i,
+      /login/i,
+      /bank/i,
+      /credit.*card/i,
+      /social.*security/i
+    ];
+
+    // Check if document.body exists (DOM might not be ready at document_start)
+    if (!document.body) {
+      return false;
+    }
+
+    return sensitivePatterns.some(pattern => pattern.test(document.body.innerText));
+  }
+
+  // Step 2: Check Safe Browsing v4 if risk score is high
+  async checkSafeBrowsing(url) {
+    const apiKey = 'AIzaSyBRAURluW18zAoKggEcVB16azODh1ohiks';
+    const safeBrowsingUrl = `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${apiKey}`;
+
+    const requestBody = {
+      client: {
+        clientId: "phishguard-extension",
+        clientVersion: "1.0"
+      },
+      threatInfo: {
+        threatTypes: ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE"],
+        platformTypes: ["ANY_PLATFORM"],
+        threatEntryTypes: ["URL"],
+        threatEntries: [{ url: url }]
+      }
+    };
+
+    try {
+      const response = await fetch(safeBrowsingUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      const data = await response.json();
+
+      if (data.matches && data.matches.length > 0) {
+        // Threat detected by Safe Browsing
+        this.threatInfo = {
+          phish_id: 'safebrowsing',
+          url: hostname,
+          target: data.matches[0].threatType,
+          verified: 'safebrowsing',
+          online: 'yes',
+          risk_level: 'critical',
+          threat_type: 'malware',
+          reason: `Safe Browsing detected: ${data.matches[0].threatType}`
+        };
+        this.showThreatWarning();
+      } else {
+        // No threat from Safe Browsing, but high risk score - send to backend for further analysis
+        this.sendToBackend(url);
+      }
+    } catch (error) {
+      console.error('Safe Browsing check failed:', error);
+      // If Safe Browsing fails, still send to backend
+      this.sendToBackend(url);
+    }
+  }
+
+  // Step 3: Send to backend for richer analysis
+  async sendToBackend(url) {
+    const backendUrl = 'http://localhost:3001/analyze'; // Local backend URL
+
+    const metadata = {
+      url: url,
+      riskScore: this.riskScore,
+      userAgent: navigator.userAgent,
+      referrer: document.referrer,
+      hasPasswordFields: document.querySelectorAll('input[type="password"]').length > 0,
+      hasLoginForm: this.detectLoginForm(),
+      timestamp: Date.now()
+    };
+
+    try {
+      const response = await fetch(backendUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(metadata)
+      });
+
+      const result = await response.json();
+
+      if (result.isThreat) {
+        this.threatInfo = {
+          phish_id: 'backend',
+          url: result.url,
+          target: result.target,
+          verified: 'backend',
+          online: 'yes',
+          risk_level: result.riskLevel,
+          threat_type: result.threatType,
+          reason: result.reason
+        };
+        this.showThreatWarning();
+      }
+    } catch (error) {
+      console.error('Backend analysis failed:', error);
+    }
+  }
+
+  detectLoginForm() {
+    const forms = document.querySelectorAll('form');
+    for (let form of forms) {
+      const inputs = form.querySelectorAll('input');
+      let hasUsername = false;
+      let hasPassword = false;
+
+      inputs.forEach(input => {
+        const type = input.type.toLowerCase();
+        const name = input.name?.toLowerCase() || '';
+        const placeholder = input.placeholder?.toLowerCase() || '';
+
+        if (type === 'password' || name.includes('pass') || placeholder.includes('password')) hasPassword = true;
+        if (type === 'email' || type === 'text' || name.includes('user') || name.includes('email') || placeholder.includes('email') || placeholder.includes('username')) hasUsername = true;
+      });
+
+      if (hasUsername && hasPassword) return true;
+    }
+    return false;
   }
 
   async checkCurrentSite() {
@@ -207,51 +485,59 @@ class PhishGuardProtection {
     const threatDetails = this.getThreatDetails();
     const threatType = this.threatInfo.threat_type || 'suspicious';
     const isMalware = threatType === 'malware' || this.threatInfo.target === 'Malware';
+    const riskLevel = this.threatInfo.risk_level || 'high';
 
-    const headerTitle = isMalware ? '🚨 Dangerous Site Detected!' : '🚨 Phishing Threat Detected!';
+    const headerTitle = isMalware ? '🚨 CRITICAL SECURITY THREAT!' : '🚨 POTENTIAL PHISHING ATTACK!';
     const headerDescription = isMalware
-      ? 'Attackers on this site might install harmful software that steals or deletes your passwords, photos, messages, or credit card numbers.'
-      : 'This website has been identified as potentially dangerous';
+      ? 'This site contains MALWARE that can steal your personal data, install viruses, or take control of your device.'
+      : 'This website appears to be FAKE and designed to steal your login credentials or personal information.';
+
+    const riskColor = riskLevel === 'critical' ? '#dc3545' : riskLevel === 'high' ? '#fd7e14' : '#ffc107';
+    const riskIcon = riskLevel === 'critical' ? '🔴' : riskLevel === 'high' ? '🟠' : '🟡';
 
     div.innerHTML = `
-      <div class="phishguard-warning-container">
-        <div class="phishguard-warning-header">
-          <div class="phishguard-warning-icon">⚠️</div>
-          <h1>${headerTitle}</h1>
-          <p>${headerDescription}</p>
-        </div>
-
-        <div class="phishguard-threat-info">
-          <h3>📍 Website Information</h3>
-          <div class="phishguard-threat-details">
-            <div class="threat-detail">
-              <span class="label">URL:</span>
-              <span class="value">${this.threatInfo.url || 'Unknown'}</span>
-            </div>
-            <div class="threat-detail">
-              <span class="label">Target:</span>
-              <span class="value">${this.threatInfo.target || 'General'}</span>
-            </div>
-            <div class="threat-detail">
-              <span class="label">Status:</span>
-              <span class="value ${this.threatInfo.verified === 'yes' ? 'verified' : 'unverified'}">
-                ${this.threatInfo.verified === 'yes' ? '✓ Verified Threat' : '⚠️ Suspected'}
-              </span>
-            </div>
-            <div class="threat-detail">
-              <span class="label">Risk Level:</span>
-              <span class="value high-risk">🔴 HIGH</span>
+      <div class="phishguard-modern-warning">
+        <div class="phishguard-header-section">
+          <div class="phishguard-risk-indicator" style="background: ${riskColor}">
+            ${riskIcon}
+          </div>
+          <div class="phishguard-header-content">
+            <h1 class="phishguard-title">${headerTitle}</h1>
+            <p class="phishguard-subtitle">${headerDescription}</p>
+            <div class="phishguard-url-display">
+              <strong>⚠️ Suspicious URL:</strong> ${this.threatInfo.url || window.location.hostname}
             </div>
           </div>
         </div>
 
-        <div class="phishguard-threat-info">
-          <h3>🚨 Potential Threats</h3>
-          <div class="attack-scenarios">
-            ${threatDetails.map(scenario => `
-              <div class="scenario">
-                <div class="scenario-icon">${scenario.icon}</div>
-                <div class="scenario-content">
+        <div class="phishguard-details-section">
+          <div class="phishguard-info-grid">
+            <div class="phishguard-info-card">
+              <h3>🔍 Detection Method</h3>
+              <p>${this.threatInfo.verified === 'safebrowsing' ? 'Google Safe Browsing' :
+                   this.threatInfo.verified === 'backend' ? 'Advanced AI Analysis' :
+                   'Heuristic Analysis'}</p>
+            </div>
+            <div class="phishguard-info-card">
+              <h3>🎯 Attack Type</h3>
+              <p>${isMalware ? 'Malware Distribution' : 'Credential Phishing'}</p>
+            </div>
+            <div class="phishguard-info-card">
+              <h3>📊 Risk Assessment</h3>
+              <p style="color: ${riskColor}; font-weight: bold;">
+                ${riskLevel.toUpperCase()} - ${this.threatInfo.reason || 'Multiple red flags detected'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="phishguard-threats-section">
+          <h3>🚨 What This Fake Site Could Do</h3>
+          <div class="phishguard-threat-grid">
+            ${threatDetails.slice(0, 4).map(scenario => `
+              <div class="phishguard-threat-item">
+                <div class="phishguard-threat-icon">${scenario.icon}</div>
+                <div class="phishguard-threat-content">
                   <h4>${scenario.title}</h4>
                   <p>${scenario.description}</p>
                 </div>
@@ -260,31 +546,58 @@ class PhishGuardProtection {
           </div>
         </div>
 
-        <div class="phishguard-protection-info">
-          <h3>🛡️ What Could Happen</h3>
-          <ul class="protection-list">
-            <li>💰 Financial loss from stolen banking credentials</li>
-            <li>🔐 Identity theft and personal data compromise</li>
-            <li>🦠 Malware infection on your device</li>
-            <li>📧 Unauthorized access to your email accounts</li>
-            <li>🔒 Account takeover and unauthorized transactions</li>
-          </ul>
+        <div class="phishguard-consequences-section">
+          <h3>💔 If You Continue, You Risk:</h3>
+          <div class="phishguard-consequences-list">
+            <div class="phishguard-consequence-item">
+              <span class="phishguard-consequence-icon">💰</span>
+              <span>Complete loss of savings and financial ruin</span>
+            </div>
+            <div class="phishguard-consequence-item">
+              <span class="phishguard-consequence-icon">🔐</span>
+              <span>Identity theft and permanent personal data compromise</span>
+            </div>
+            <div class="phishguard-consequence-item">
+              <span class="phishguard-consequence-icon">🦠</span>
+              <span>Malware infection spreading to all your devices</span>
+            </div>
+            <div class="phishguard-consequence-item">
+              <span class="phishguard-consequence-icon">📧</span>
+              <span>Hackers gaining access to all your email accounts</span>
+            </div>
+            <div class="phishguard-consequence-item">
+              <span class="phishguard-consequence-icon">🏦</span>
+              <span>Unauthorized access to your bank accounts and transactions</span>
+            </div>
+          </div>
         </div>
 
-        <div class="phishguard-warning-actions">
-          <button class="phishguard-btn phishguard-btn-danger" id="phishguard-leave">
-            🏃‍♂️ Leave This Site
-          </button>
-          <button class="phishguard-btn phishguard-btn-primary" id="phishguard-learn">
-            📚 Learn More
-          </button>
-          <button class="phishguard-btn phishguard-btn-outline" id="phishguard-close">
-            Continue Anyway
-          </button>
+        <div class="phishguard-actions-section">
+          <div class="phishguard-action-buttons">
+            <button class="phishguard-btn phishguard-btn-leave" id="phishguard-leave">
+              🏃‍♂️ Leave This Dangerous Site
+            </button>
+            <button class="phishguard-btn phishguard-btn-learn" id="phishguard-learn">
+              📚 Learn About This Threat
+            </button>
+          </div>
+          <div class="phishguard-secondary-actions">
+            <button class="phishguard-btn phishguard-btn-secondary" id="phishguard-report">
+              🚨 Report This Site
+            </button>
+            <button class="phishguard-btn phishguard-btn-outline" id="phishguard-close">
+              Continue At Your Own Risk
+            </button>
+          </div>
+        </div>
+
+        <div class="phishguard-footer">
+          <p>🛡️ Protected by PhishGuard Pro - Advanced Threat Detection</p>
         </div>
       </div>
     `;
 
+    // Add event listeners
     div.querySelector('#phishguard-close').addEventListener('click', () => {
       div.remove();
     });
@@ -298,7 +611,16 @@ class PhishGuardProtection {
       div.remove();
     });
 
+    div.querySelector('#phishguard-report').addEventListener('click', () => {
+      this.reportThreat();
+    });
+
     return div;
+  }
+
+  reportThreat() {
+    // Report functionality - could send to backend or external service
+    alert('Thank you for reporting! This helps protect other users from this threat.');
   }
 
   getThreatDetails() {
