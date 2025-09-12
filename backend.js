@@ -1,163 +1,457 @@
-const express = require('express');
-const cors = require('cors');
-const bodyParser = require('body-parser');
+// background.js for PhishGuard Pro with heuristic + dataset layered check
 
-const app = express();
-const PORT = process.env.PORT || 3001;
-
-// Middleware
-app.use(cors());
-app.use(bodyParser.json());
-
-// In-memory blocklist (in production, use a database)
-const blocklist = [
-  'malicious-site.com',
-  'phishing-bank.com',
-  'fake-login.net',
-  'suspicious-domain.xyz'
-];
-
-// Additional analysis patterns
-const suspiciousPatterns = {
-  highRisk: [
-    /malicious/i,
-    /phishing/i,
-    /scam/i,
-    /fake/i,
-    /suspicious/i
-  ],
-  mediumRisk: [
-    /login/i,
-    /secure/i,
-    /verify/i,
-    /update/i,
-    /account/i
-  ]
-};
-
-// Analyze URL with richer features
-function analyzeURL(url, metadata) {
-  let riskLevel = 'low';
-  let threatType = 'unknown';
-  let reason = 'No significant threats detected';
-  let target = 'General';
-
-  const hostname = new URL(url).hostname.toLowerCase();
-
-  // Check blocklist
-  if (blocklist.some(blocked => hostname.includes(blocked))) {
-    riskLevel = 'critical';
-    threatType = 'malware';
-    reason = 'Domain found in blocklist';
-    target = 'Blocked Domain';
+class DynamicBenignManager {
+  constructor() {
+    this.benignData = new Set();
+    this.cacheExpiry = 24 * 60 * 60 * 1000; // 24 hours
+    // Set your API endpoint and key here:
+    this.apiEndpoint = null; // Set to null to use fallback data only
+    this.apiKey = 'AIzaSyBRAURluW18zAoKggEcVB16azODh1ohiks'; // Google Safe Browsing API key
   }
 
-  // Check suspicious patterns
-  for (const pattern of suspiciousPatterns.highRisk) {
-    if (pattern.test(hostname) || pattern.test(url)) {
-      riskLevel = 'high';
-      threatType = 'phishing';
-      reason = 'High-risk pattern detected in URL';
-      break;
+  async initialize() {
+    await this.loadBenignData();
+  }
+
+  async loadBenignData() {
+    // Force reload from source (disable cache for debugging)
+    console.log('Force loading benign data from source...');
+    await this.fetchFromAPI();
+  }
+
+  async fetchFromAPI() {
+    // If no API endpoint configured, skip API fetch and load fallback
+    if (!this.apiEndpoint) {
+      console.log('No API endpoint configured, loading fallback data...');
+      await this.loadFallbackData();
+      return;
     }
-  }
 
-  if (riskLevel === 'low') {
-    for (const pattern of suspiciousPatterns.mediumRisk) {
-      if (pattern.test(hostname) || pattern.test(url)) {
-        riskLevel = 'medium';
-        threatType = 'suspicious';
-        reason = 'Medium-risk pattern detected in URL';
-        break;
+    try {
+      console.log('Fetching benign data from API...');
+      const response = await fetch(this.apiEndpoint, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'PhishGuard-Extension/1.0'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
       }
+
+      const data = await response.json();
+
+      if (data && data.websites && Array.isArray(data.websites)) {
+        this.benignData = new Set(data.websites.map(url => {
+          try {
+            return new URL(url).hostname;
+          } catch (error) {
+            console.warn('Invalid URL in API response:', url);
+            return null;
+          }
+        }).filter(hostname => hostname !== null));
+
+        console.log('Benign data loaded from API:', this.benignData.size, 'entries');
+
+        // Cache the data
+        await this.cacheData(data.websites);
+      } else {
+        throw new Error('Invalid API response format');
+      }
+
+    } catch (error) {
+      console.error('API fetch failed:', error);
+      await this.loadFallbackData();
     }
   }
 
-  // Analyze metadata
-  if (metadata.hasPasswordFields && metadata.hasLoginForm) {
-    if (riskLevel === 'low') riskLevel = 'medium';
-    threatType = 'credential_harvest';
-    reason += ' | Login form with password fields detected';
+  async updateFromAPI() {
+    // Skip background updates if no API endpoint configured
+    if (!this.apiEndpoint) {
+      return;
+    }
+
+    // Background update without blocking
+    try {
+      const response = await fetch(`${this.apiEndpoint}?since=${Date.now()}`, {
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'User-Agent': 'PhishGuard-Extension/1.0'
+        }
+      });
+
+      if (response.ok) {
+        const updates = await response.json();
+        if (updates && updates.websites) {
+          console.log('Background update received:', updates.websites.length, 'websites');
+          await this.applyUpdates(updates);
+        }
+      }
+    } catch (error) {
+      // Silent failure for background updates
+      console.log('Background update failed, will retry later');
+    }
   }
 
-  if (metadata.riskScore > 50) {
-    riskLevel = 'high';
-    reason += ' | High client-side risk score';
+  async applyUpdates(updates) {
+    if (updates.websites && Array.isArray(updates.websites)) {
+      const newHostnames = updates.websites.map(url => {
+        try {
+          return new URL(url).hostname;
+        } catch (error) {
+          return null;
+        }
+      }).filter(hostname => hostname !== null);
+
+      // Update the set
+      this.benignData = new Set([...this.benignData, ...newHostnames]);
+      console.log('Applied updates, new benign count:', this.benignData.size);
+
+      // Update cache
+      await this.cacheData([...this.benignData]);
+    }
   }
 
-  // Check referrer for suspicious patterns
-  if (metadata.referrer && suspiciousPatterns.highRisk.some(pattern => pattern.test(metadata.referrer))) {
-    riskLevel = 'high';
-    reason += ' | Suspicious referrer detected';
+  isCacheValid(timestamp) {
+    return (Date.now() - timestamp) < this.cacheExpiry;
   }
 
-  return {
-    isThreat: riskLevel !== 'low',
-    riskLevel,
-    threatType,
-    reason,
-    target,
-    url: hostname,
-    analysisTimestamp: new Date().toISOString()
-  };
+  async getCachedData() {
+    return new Promise(resolve => {
+      chrome.storage.local.get(['benignCache'], result => {
+        resolve(result.benignCache);
+      });
+    });
+  }
+
+  async cacheData(data) {
+    const cacheEntry = {
+      data: data,
+      timestamp: Date.now()
+    };
+    await chrome.storage.local.set({ benignCache: cacheEntry });
+  }
+
+  async loadFallbackData() {
+    console.log('Loading fallback benign data...');
+
+    try {
+      // Try to load from benign.json first
+      const response = await fetch(chrome.runtime.getURL('benign.json'));
+      const data = await response.json();
+
+      if (Array.isArray(data)) {
+        // Extract hostnames from URLs and normalize them
+        const hostnames = data.map(url => {
+          try {
+            const hostname = new URL(url).hostname;
+            // Remove 'www.' prefix for better matching
+            return hostname.replace(/^www\./, '');
+          } catch (error) {
+            console.warn('Invalid URL in benign.json:', url);
+            return null;
+          }
+        }).filter(hostname => hostname !== null);
+
+        this.benignData = new Set(hostnames);
+        console.log('Benign data loaded from benign.json:', this.benignData.size, 'entries');
+        console.log('Sample benign domains:', Array.from(this.benignData).slice(0, 5));
+        return;
+      }
+    } catch (error) {
+      console.warn('Failed to load benign.json, using hardcoded fallback:', error);
+    }
+
+    // Fallback to hardcoded list if benign.json fails
+    const fallback = [
+      'google.com',
+      'youtube.com',
+      'facebook.com',
+      'amazon.com',
+      'wikipedia.org',
+      'github.com',
+      'microsoft.com',
+      'apple.com',
+      'twitter.com',
+      'instagram.com',
+      'linkedin.com',
+      'reddit.com',
+      'netflix.com'
+    ];
+    this.benignData = new Set(fallback);
+    console.log('Fallback benign data loaded:', this.benignData.size, 'entries');
+  }
+
+  async isBenign(hostname) {
+    if (!hostname) return false;
+
+    // Normalize hostname (remove www. prefix)
+    const normalizedHostname = hostname.replace(/^www\./, '');
+
+    return this.benignData.has(normalizedHostname);
+  }
 }
 
-// API endpoint for URL analysis
-app.post('/analyze', (req, res) => {
-  try {
-    const { url, riskScore, userAgent, referrer, hasPasswordFields, hasLoginForm, timestamp } = req.body;
+class PhishingDatabase {
+  constructor() {
+    this.phishingData = new Map();
+    this.benignManager = new DynamicBenignManager();
+    this.loadDatabase();
+  }
 
-    console.log(`Analyzing URL: ${url}, Risk Score: ${riskScore}`);
+  async loadDatabase() {
+    // Initialize dynamic benign manager
+    await this.benignManager.initialize();
 
-    const metadata = {
-      riskScore,
-      userAgent,
-      referrer,
-      hasPasswordFields,
-      hasLoginForm,
-      timestamp
+    try {
+      // Load phishing dataset from local data.json file
+      const response = await fetch(chrome.runtime.getURL('data.json'));
+      const data = await response.json();
+
+      this.phishingData = new Map();
+      data.forEach(entry => this.phishingData.set(entry.url, entry));
+
+      console.log('Phishing database loaded from local data.json:', this.phishingData.size, 'entries');
+    } catch (error) {
+      console.error('Failed to load phishing database from local data.json:', error);
+      // Optional fallback sample data
+      const sampleData = [
+        {
+          phish_id: 1,
+          url: "malicious-bank-site.com",
+          phish_detail_url: "http://openphish.com/phish_detail.html?id=1",
+          submission_time: "2024-01-01T10:00:00Z",
+          verified: "yes",
+          verification_time: "2024-01-01T11:00:00Z",
+          online: "yes",
+          target: "Banking"
+        }
+      ];
+      this.phishingData = new Map();
+      sampleData.forEach(entry => this.phishingData.set(entry.url, entry));
+      console.log('Sample phishing database loaded');
+    }
+  }
+
+  async heuristicCheck(hostname, fullUrl) {
+    let score = 0;
+
+    // URL Length
+    if (fullUrl.length > 75) score += 10;
+    if (fullUrl.length > 100) score += 10;
+
+    // Hostname Length
+    if (hostname.length > 25) score += 10;
+
+    // Subdomain Count
+    const subdomainCount = hostname.split('.').length - 2;
+    if (subdomainCount > 3) score += (subdomainCount - 3) * 5;
+
+    // Special Characters
+    if (hostname.includes('-') || hostname.includes('_')) score += 5;
+    if ((hostname.match(/-/g) || []).length > 2) score += 10;
+
+    // TLD Analysis
+    const suspiciousTlds = ['.xyz', '.biz', '.info', '.top', '.loan', '.work', '.click', '.link', '.gq', '.cf', '.ml', '.ga'];
+    if (suspiciousTlds.some(tld => hostname.endsWith(tld))) score += 20;
+
+    // Keyword Matching
+    const highRiskKeywords = ['phishing', 'malware', 'scam', 'fraud', 'hack'];
+    if (highRiskKeywords.some(keyword => hostname.includes(keyword))) score += 40;
+
+    const mediumRiskKeywords = ['login', 'secure', 'verify', 'update', 'account', 'password', 'bank', 'admin'];
+    if (mediumRiskKeywords.some(keyword => hostname.includes(keyword))) score += 15;
+
+    // IP Address in Hostname
+    if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) score += 30;
+
+    if (score >= 60) {
+      return {
+        phish_id: 'heuristic',
+        url: hostname,
+        target: 'Unknown',
+        verified: 'heuristic',
+        online: 'yes',
+        risk_level: 'critical',
+        threat_type: 'suspicious',
+        reason: `Multiple high-risk indicators detected (score: ${score})`
+      };
+    } else if (score >= 40) {
+      return {
+        phish_id: 'heuristic',
+        url: hostname,
+        target: 'Unknown',
+        verified: 'heuristic',
+        online: 'yes',
+        risk_level: 'high',
+        threat_type: 'suspicious',
+        reason: `Multiple suspicious indicators detected (score: ${score})`
+      };
+    } else if (score >= 20) {
+      return {
+        phish_id: 'heuristic',
+        url: hostname,
+        target: 'Unknown',
+        verified: 'heuristic',
+        online: 'yes',
+        risk_level: 'medium',
+        threat_type: 'suspicious',
+        reason: `Some suspicious indicators detected (score: ${score})`
+      };
+    }
+
+    return null;
+  }
+
+  async checkUrl(url) {
+    try {
+      const hostname = new URL(url).hostname;
+
+      // Layer 1: Local Database Check
+      if (this.benignManager.isBenign(hostname)) {
+        return null; // Safe
+      }
+      if (this.phishingData.has(hostname)) {
+        return this.phishingData.get(hostname);
+      }
+
+      // Layer 2: Heuristic Analysis
+      const heuristicThreat = await this.heuristicCheck(hostname, url);
+      if (heuristicThreat) {
+        return heuristicThreat;
+      }
+
+      // Layer 3: Google Safe Browsing API
+      const isSafe = await this.isBenignViaGoogleSafeBrowsing(url);
+      if (!isSafe) {
+        return {
+          phish_id: 'google-safe-browsing',
+          url: hostname,
+          target: 'Unknown',
+          verified: 'google',
+          online: 'yes',
+          risk_level: 'high',
+          threat_type: 'suspicious',
+          reason: 'Flagged by Google Safe Browsing'
+        };
+      }
+
+      // If no threat is found
+      return null;
+    } catch (error) {
+      console.error('URL check error:', error);
+      return null;
+    }
+  }
+
+  async isBenignViaGoogleSafeBrowsing(url) {
+    // Google Safe Browsing API v4 endpoint
+    const apiKey = this.benignManager.apiKey;
+    const endpoint = `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${apiKey}`;
+    const body = {
+      client: {
+        clientId: "phishguard-extension",
+        clientVersion: "1.0"
+      },
+      threatInfo: {
+        threatTypes: ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"],
+        platformTypes: ["ANY_PLATFORM"],
+        threatEntryTypes: ["URL"],
+        threatEntries: [{ url }]
+      }
     };
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!response.ok) throw new Error('Safe Browsing API error: ' + response.status);
+      const result = await response.json();
+      // If no matches, treat as benign
+      return !result.matches;
+    } catch (error) {
+      console.error('Safe Browsing API error:', error);
+      // On error, fallback to not benign
+      return false;
+    }
+  }
+}
 
-    const analysis = analyzeURL(url, metadata);
+const phishingDB = new PhishingDatabase();
 
-    res.json(analysis);
-  } catch (error) {
-    console.error('Analysis error:', error);
-    res.status(500).json({
-      error: 'Analysis failed',
-      message: error.message
+chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
+  if (details.frameId === 0) {
+    chrome.storage.local.get(['sitesChecked', 'threatsBlocked', 'realTimeProtection'], async (result) => {
+      let { sitesChecked = 0, threatsBlocked = 0, realTimeProtection = true } = result;
+      sitesChecked++;
+
+      if (realTimeProtection) {
+        const threat = await phishingDB.checkUrl(details.url);
+        if (threat) {
+          threatsBlocked++;
+          await chrome.storage.session.set({
+            [`threat_${details.tabId}`]: {
+              ...threat,
+              currentUrl: details.url,
+              timestamp: Date.now(),
+            },
+          });
+        } else {
+          // Clear threat data if no threat detected for this URL
+          await chrome.storage.session.remove(`threat_${details.tabId}`);
+        }
+      }
+      chrome.storage.local.set({ sitesChecked, threatsBlocked });
     });
   }
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    blocklistSize: blocklist.length
-  });
-});
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  switch (request.type) {
+    case 'CHECK_URL':
+      phishingDB.checkUrl(request.url)
+        .then(result => sendResponse({ threat: result }))
+        .catch(error => sendResponse({ error: error.message }));
+      return true; // async response
 
-// Add to blocklist (for admin use)
-app.post('/blocklist/add', (req, res) => {
-  const { domain } = req.body;
-  if (domain && !blocklist.includes(domain)) {
-    blocklist.push(domain);
-    res.json({ success: true, message: `${domain} added to blocklist` });
-  } else {
-    res.status(400).json({ error: 'Invalid or duplicate domain' });
+    case 'REPORT_BLOCKED':
+      console.log('Keylogger blocked on:', sender.tab?.url);
+      break;
+
+    case 'USER_EDUCATED':
+      chrome.storage.local.get(['educationStats'], result => {
+        let stats = result.educationStats || { totalEducated: 0, byTarget: {} };
+        stats.totalEducated++;
+        stats.byTarget[request.target] = (stats.byTarget[request.target] || 0) + 1;
+        chrome.storage.local.set({ educationStats: stats });
+      });
+      break;
+
+    case 'GET_SESSION_THREAT':
+      chrome.storage.session.get(`threat_${request.tabId}`).then(result => {
+        sendResponse({ threat: result[`threat_${request.tabId}`] || null });
+      });
+      return true;
+
+    case 'GET_TAB_ID':
+      sendResponse({ tabId: sender.tab ? sender.tab.id : null });
+      return true;
+
+    default:
+      break;
   }
 });
 
-// Get blocklist (for admin use)
-app.get('/blocklist', (req, res) => {
-  res.json({ blocklist });
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  const threat = await chrome.storage.session.get(`threat_${activeInfo.tabId}`);
+  if (threat[`threat_${activeInfo.tabId}`]) {
+    chrome.action.setBadgeText({ text: '!', tabId: activeInfo.tabId });
+    chrome.action.setBadgeBackgroundColor({ color: '#ff4444' });
+  } else {
+    chrome.action.setBadgeText({ text: '', tabId: activeInfo.tabId });
+  }
 });
-
-app.listen(PORT, () => {
-  console.log(`PhishGuard Backend running on port ${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
-});
-
-module.exports = app;

@@ -8,6 +8,14 @@ class PhishGuardProtection {
   }
 
   async init() {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', this.initialize.bind(this));
+    } else {
+      this.initialize();
+    }
+  }
+
+  async initialize() {
     // Load benign data first
     await this.loadBenignData();
 
@@ -460,21 +468,25 @@ class PhishGuardProtection {
   }
 
  async showThreatWarning() {
-  // Wait until document.body is ready
-  if (!document.body) {
-    await new Promise(resolve => {
-      if (document.readyState === "complete" || document.readyState === "interactive") {
-        resolve();
-      } else {
-        window.addEventListener('DOMContentLoaded', resolve, { once: true });
+  chrome.storage.local.get('educationalAlerts', async (result) => {
+    if (result.educationalAlerts !== false) {
+      // Wait until document.body is ready
+      if (!document.body) {
+        await new Promise(resolve => {
+          if (document.readyState === "complete" || document.readyState === "interactive") {
+            resolve();
+          } else {
+            window.addEventListener('DOMContentLoaded', resolve, { once: true });
+          }
+        });
       }
-    });
-  }
 
-  const overlay = this.createOverlay();
-  document.body.appendChild(overlay);
-  requestAnimationFrame(() => {
-    overlay.classList.add('phishguard-show');
+      const overlay = this.createOverlay();
+      document.body.appendChild(overlay);
+      requestAnimationFrame(() => {
+        overlay.classList.add('phishguard-show');
+      });
+    }
   });
 }
 
@@ -487,13 +499,13 @@ class PhishGuardProtection {
     const isMalware = threatType === 'malware' || this.threatInfo.target === 'Malware';
     const riskLevel = this.threatInfo.risk_level || 'high';
 
-    const headerTitle = isMalware ? '🚨 CRITICAL SECURITY THREAT!' : '🚨 POTENTIAL PHISHING ATTACK!';
+    const headerTitle = isMalware ? 'CRITICAL SECURITY THREAT!' : 'POTENTIAL PHISHING ATTACK!';
     const headerDescription = isMalware
       ? 'This site contains MALWARE that can steal your personal data, install viruses, or take control of your device.'
       : 'This website appears to be FAKE and designed to steal your login credentials or personal information.';
 
     const riskColor = riskLevel === 'critical' ? '#dc3545' : riskLevel === 'high' ? '#fd7e14' : '#ffc107';
-    const riskIcon = riskLevel === 'critical' ? '🔴' : riskLevel === 'high' ? '🟠' : '🟡';
+    const riskIcon = riskLevel === 'critical' ? '!' : riskLevel === 'high' ? '!' : '?';
 
     div.innerHTML = `
       <div class="phishguard-modern-warning">
@@ -505,7 +517,7 @@ class PhishGuardProtection {
             <h1 class="phishguard-title">${headerTitle}</h1>
             <p class="phishguard-subtitle">${headerDescription}</p>
             <div class="phishguard-url-display">
-              <strong>⚠️ Suspicious URL:</strong> ${this.threatInfo.url || window.location.hostname}
+              <strong>Suspicious URL:</strong> ${this.threatInfo.url || window.location.hostname}
             </div>
           </div>
         </div>
@@ -513,17 +525,17 @@ class PhishGuardProtection {
         <div class="phishguard-details-section">
           <div class="phishguard-info-grid">
             <div class="phishguard-info-card">
-              <h3>🔍 Detection Method</h3>
+              <h3>Detection Method</h3>
               <p>${this.threatInfo.verified === 'safebrowsing' ? 'Google Safe Browsing' :
                    this.threatInfo.verified === 'backend' ? 'Advanced AI Analysis' :
                    'Heuristic Analysis'}</p>
             </div>
             <div class="phishguard-info-card">
-              <h3>🎯 Attack Type</h3>
+              <h3>Attack Type</h3>
               <p>${isMalware ? 'Malware Distribution' : 'Credential Phishing'}</p>
             </div>
             <div class="phishguard-info-card">
-              <h3>📊 Risk Assessment</h3>
+              <h3>Risk Assessment</h3>
               <p style="color: ${riskColor}; font-weight: bold;">
                 ${riskLevel.toUpperCase()} - ${this.threatInfo.reason || 'Multiple red flags detected'}
               </p>
@@ -532,9 +544,9 @@ class PhishGuardProtection {
         </div>
 
         <div class="phishguard-threats-section">
-          <h3>🚨 What This Fake Site Could Do</h3>
+          <h3>What This Fake Site Could Do</h3>
           <div class="phishguard-threat-grid">
-            ${threatDetails.slice(0, 4).map(scenario => `
+            ${threatDetails.slice(0, 3).map(scenario => `
               <div class="phishguard-threat-item">
                 <div class="phishguard-threat-icon">${scenario.icon}</div>
                 <div class="phishguard-threat-content">
@@ -547,7 +559,7 @@ class PhishGuardProtection {
         </div>
 
         <div class="phishguard-consequences-section">
-          <h3>💔 If You Continue, You Risk:</h3>
+          <h3>If You Continue, You Risk:</h3>
           <div class="phishguard-consequences-list">
             <div class="phishguard-consequence-item">
               <span class="phishguard-consequence-icon">💰</span>
@@ -561,29 +573,21 @@ class PhishGuardProtection {
               <span class="phishguard-consequence-icon">🦠</span>
               <span>Malware infection spreading to all your devices</span>
             </div>
-            <div class="phishguard-consequence-item">
-              <span class="phishguard-consequence-icon">📧</span>
-              <span>Hackers gaining access to all your email accounts</span>
-            </div>
-            <div class="phishguard-consequence-item">
-              <span class="phishguard-consequence-icon">🏦</span>
-              <span>Unauthorized access to your bank accounts and transactions</span>
-            </div>
           </div>
         </div>
 
         <div class="phishguard-actions-section">
           <div class="phishguard-action-buttons">
             <button class="phishguard-btn phishguard-btn-leave" id="phishguard-leave">
-              🏃‍♂️ Leave This Dangerous Site
+              Leave This Dangerous Site
             </button>
             <button class="phishguard-btn phishguard-btn-learn" id="phishguard-learn">
-              📚 Learn About This Threat
+              Learn About This Threat
             </button>
           </div>
           <div class="phishguard-secondary-actions">
             <button class="phishguard-btn phishguard-btn-secondary" id="phishguard-report">
-              🚨 Report This Site
+              Report This Site
             </button>
             <button class="phishguard-btn phishguard-btn-outline" id="phishguard-close">
               Continue At Your Own Risk
@@ -592,7 +596,7 @@ class PhishGuardProtection {
         </div>
 
         <div class="phishguard-footer">
-          <p>🛡️ Protected by PhishGuard Pro - Advanced Threat Detection</p>
+          <p>Protected by PhishGuard Pro - Advanced Threat Detection</p>
         </div>
       </div>
     `;
@@ -797,7 +801,7 @@ class PhishGuardProtection {
           <ul>
             <li><strong>Unexpected Requests:</strong> Sudden demands for personal information</li>
             <li><strong>Urgent Language:</strong> "Act now or lose access" messages</li>
-            <li><strong>Suspicious URLs:</strong> Check for misspellings and unusual domains</li>
+            <li><strong>Suspicious URLs:</strong> Check for misspellings</li>
             <li><strong>Poor Security:</strong> Sites without HTTPS or lock icon</li>
             <li><strong>Too Good to Be True:</strong> Unrealistic offers or prizes</li>
           </ul>

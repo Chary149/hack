@@ -14,9 +14,22 @@ class DynamicBenignManager {
   }
 
   async loadBenignData() {
-    // Force reload from source (disable cache for debugging)
-    console.log('Force loading benign data from source...');
-    await this.fetchFromAPI();
+    console.log('Loading benign data...');
+    const cached = await this.getCachedData();
+    if (cached && cached.data && Array.isArray(cached.data) && this.isCacheValid(cached.timestamp)) {
+      this.benignData = new Set(cached.data.map(url => {
+        try {
+          const hostname = new URL(url).hostname.replace(/^www\./, '');
+          return hostname;
+        } catch (error) {
+          console.warn('Invalid cached URL:', url);
+          return null;
+        }
+      }).filter(hostname => hostname !== null));
+      console.log('Benign data loaded from cache:', this.benignData.size, 'entries');
+      return;
+    }
+    await this.loadFallbackData();
   }
 
   async fetchFromAPI() {
@@ -159,6 +172,8 @@ class DynamicBenignManager {
         this.benignData = new Set(hostnames);
         console.log('Benign data loaded from benign.json:', this.benignData.size, 'entries');
         console.log('Sample benign domains:', Array.from(this.benignData).slice(0, 5));
+        // Cache the original URLs
+        await this.cacheData(data);
         return;
       }
     } catch (error) {
@@ -223,6 +238,12 @@ class DynamicBenignManager {
 
     // Normalize hostname (remove www. prefix)
     const normalizedHostname = hostname.replace(/^www\./, '');
+
+    // Check if in known benign data first
+    if (this.benignData.has(normalizedHostname)) {
+      return true;
+    }
+
     const url = `http://${normalizedHostname}`;
 
     // Use Google Safe Browsing API for verification
@@ -281,124 +302,114 @@ class PhishingDatabase {
 
 
   async heuristicCheck(hostname, fullUrl) {
-    const suspiciousPatterns = [
-      /\b(\d{1,3}\.){3}\d{1,3}\b/,               // IP addresses
-      /[a-z]+-[a-z]+-[a-z]+\.(tk|ml|ga|cf|xyz|top|club|online|site|store|tech|live|icu|work|click|link)/,    // Suspicious TLDs (expanded)
-      /-secure-|security-|verify-|update-|login-|signin-|account-|banking-|paypal-|amazon-|google-/,      // Keywords common in phishing
-      /[a-z]{25,}/,                              // Very long subdomains
-      /secure\d+/,                               // Numbers in domain names
-      /paypa1|goog1e|amaz0n|netfl1x|faceb00k/,   // Leet speak phishing domains
-      /login\./,                                 // Direct login subdomains
-      /verify\./,                                // Direct verify subdomains
-      /secure\./,                                // Direct secure subdomains
-      /account\./,                               // Direct account subdomains
-      /update\./,                                // Direct update subdomains
-      /support\./,                               // Direct support subdomains
-      /help\./,                                  // Direct help subdomains
+    let score = 0;
+
+    // --- Basic URL & Hostname Features ---
+    // URL Length
+    if (fullUrl.length > 75) score += 10;
+    if (fullUrl.length > 100) score += 15; // Increased penalty for very long URLs
+
+    // Hostname Length
+    if (hostname.length > 25) score += 10;
+    if (hostname.length > 35) score += 15; // Increased penalty for very long hostnames
+
+    // Subdomain Count (more than 3 subdomains can be suspicious)
+    const subdomainCount = hostname.split('.').length - 2;
+    if (subdomainCount > 3) score += (subdomainCount - 3) * 7; // Increased impact
+
+    // Special Characters in Hostname (e.g., hyphens, underscores, unusual characters)
+    if (hostname.includes('-') || hostname.includes('_')) score += 5;
+    if ((hostname.match(/-/g) || []).length > 2) score += 10; // Multiple hyphens
+    if (/[@%?&]/.test(hostname)) score += 20; // Highly suspicious characters
+
+    // --- TLD Analysis ---
+    const suspiciousTlds = [
+      '.xyz', '.biz', '.info', '.top', '.loan', '.work', '.click', '.link', '.gq', '.cf', '.ml', '.ga',
+      '.pw', '.tk', '.online', '.site', '.store', '.tech', '.icu', '.club', '.bid', '.party', '.review',
+      '.download', '.win', '.stream', '.date', '.trade', '.account', '.science', '.space', '.website'
     ];
+    if (suspiciousTlds.some(tld => hostname.endsWith(tld))) score += 25; // Increased penalty
 
-    // Malware and dangerous site patterns - more specific to avoid false positives
-    const malwarePatterns = [
-      /malware|virus|trojan|ransomware|spyware|malicious/, // Direct malware keywords in domain
-      /download.*\.exe|\.exe.*download/i,        // Executable downloads
-      /crack|keygen|patch|hack/i,                // Piracy/crack sites
-      /free.*money|easy.*money|get.*rich/i,      // Money scams
-      /win.*prize|lucky.*winner/i,               // Prize scams
-      /urgent.*action|immediate.*response/i,     // Urgent action scams
-      /suspicious|dangerous|threat/i,            // Self-descriptive dangerous sites
-      /testsafebrowsing|safebrowsing.*test/i,    // Test sites for safe browsing
-      /phishing.*test|test.*phishing/i,          // Phishing test sites
-      /malware.*test|test.*malware/i,            // Malware test sites
-      /malicious.*test|test.*malicious/i,        // Malicious test sites
-      /unsafe|infected|hacked/i,                 // Sites that admit to being unsafe (only in domain)
-      /drive-by|exploit|vulnerability/i,         // Exploit-related sites (only in domain)
+    // --- Keyword Matching ---
+    const highRiskKeywords = [
+      'phishing', 'malware', 'scam', 'fraud', 'hack', 'secure', 'login', 'verify', 'update', 'account',
+      'password', 'bank', 'admin', 'support', 'payment', 'confirm', 'alert', 'warning', 'security',
+      'credential', 'signin', 'authorize', 'recover', 'reset', 'transaction', 'invoice', 'urgent', 'suspicious'
     ];
+    if (highRiskKeywords.some(keyword => hostname.includes(keyword))) score += 30; // Increased penalty
 
-    // Additional checks for HTTPS sites
-    const isHttps = fullUrl.startsWith('https://');
-    if (isHttps) {
-      const httpsPatterns = [
-        /https?:\/\/[^\.]+\.[^\.]+\.[^\.]+/,     // Triple-level domains (suspicious)
-        /https?:\/\/.*\d{4,}/,                   // Domains with long numbers
-        /https?:\/\/.*-{2,}/,                    // Multiple hyphens
-        /https?:\/\/.*\.{2,}/,                   // Multiple dots
-        /https?:\/\/.*_/,                        // Underscores in domain
-      ];
+    const mediumRiskKeywords = [
+      'free', 'gift', 'prize', 'offer', 'claim', 'bonus', 'discount', 'promo', 'lucky', 'winner',
+      'notification', 'delivery', 'invoice', 'order', 'shipping', 'tracking', 'refund', 'statement'
+    ];
+    if (mediumRiskKeywords.some(keyword => hostname.includes(keyword))) score += 15;
 
-      suspiciousPatterns.push(...httpsPatterns);
-    }
+    // --- IP Address in Hostname ---
+    if (/^(\d{1,3}\.){3}\d{1,3}$/.test(hostname)) score += 40; // Increased penalty for direct IP
 
-    // Check for recently registered TLDs that are commonly abused
-    const recentAbusedTLDs = ['.app', '.dev', '.page', '.site', '.online', '.store', '.tech', '.live', '.icu', '.work', '.click', '.link', '.club', '.top', '.xyz'];
-    for (const tld of recentAbusedTLDs) {
-      if (hostname.endsWith(tld)) {
-        // Additional scrutiny for these TLDs
-        if (hostname.length > 15 || hostname.split('.').length > 2) {
-          return {
-            phish_id: 'heuristic',
-            url: hostname,
-            target: 'Malware',
-            verified: 'heuristic',
-            online: 'yes',
-            risk_level: 'high',
-            threat_type: 'malware',
-            reason: `Suspicious TLD with malware indicators: ${tld}`
-          };
-        }
-      }
-    }
+    // --- Homoglyph Detection (Basic) ---
+    // Common homoglyphs (e.g., 'o' vs '0', 'l' vs '1', 'a' vs '@')
+    const homoglyphPatterns = [
+      /0/g, /1/g, /@/g, /l/g, /o/g, // Simple character substitutions
+      /rn/g, // 'm' homoglyph
+      /vv/g, // 'w' homoglyph
+    ];
+    const originalHostname = hostname.toLowerCase();
+    const suspiciousHomoglyphs = homoglyphPatterns.some(pattern => {
+      const tempHostname = originalHostname.replace(pattern, '');
+      return tempHostname.length !== originalHostname.length; // If replacement occurred, it's suspicious
+    });
+    if (suspiciousHomoglyphs) score += 25;
 
-    // Check malware patterns first (higher priority) - only check hostname for content-based patterns
-    for (const pattern of malwarePatterns) {
-      // For content-based patterns that might cause false positives, only check hostname
-      const contentPatterns = [/unsafe|infected|hacked/i, /drive-by|exploit|vulnerability/i];
-      const isContentPattern = contentPatterns.some(cp => cp.source === pattern.source);
+    // --- Brand Impersonation (Basic) ---
+    const commonBrands = ['google', 'apple', 'microsoft', 'amazon', 'paypal', 'facebook', 'netflix', 'ebay'];
+    const brandImpersonation = commonBrands.some(brand => {
+      const brandRegex = new RegExp(`${brand}[^a-z0-9]`, 'i'); // e.g., google-login, apple.id
+      return brandRegex.test(hostname) && !hostname.includes(brand + '.com'); // Avoid flagging legitimate subdomains
+    });
+    if (brandImpersonation) score += 35;
 
-      if (isContentPattern) {
-        // Only flag if the pattern is in the hostname/domain itself, not in the full URL
-        if (pattern.test(hostname)) {
-          return {
-            phish_id: 'heuristic',
-            url: hostname,
-            target: 'Malware',
-            verified: 'heuristic',
-            online: 'yes',
-            risk_level: 'critical',
-            threat_type: 'malware',
-            reason: `Malware pattern detected in domain: ${pattern}`
-          };
-        }
-      } else {
-        // For other patterns, check both hostname and full URL
-        if (pattern.test(hostname) || pattern.test(fullUrl)) {
-          return {
-            phish_id: 'heuristic',
-            url: hostname,
-            target: 'Malware',
-            verified: 'heuristic',
-            online: 'yes',
-            risk_level: 'critical',
-            threat_type: 'malware',
-            reason: `Malware pattern detected: ${pattern}`
-          };
-        }
-      }
-    }
+    // --- URL Path Depth ---
+    const pathDepth = (new URL(fullUrl).pathname.match(/\//g) || []).length;
+    if (pathDepth > 5) score += 10; // Deep paths can be suspicious
 
-    // Check suspicious patterns
-    for (const pattern of suspiciousPatterns) {
-      if (pattern.test(hostname) || pattern.test(fullUrl)) {
-        return {
-          phish_id: 'heuristic',
-          url: hostname,
-          target: 'Unknown',
-          verified: 'heuristic',
-          online: 'yes',
-          risk_level: 'medium',
-          threat_type: 'suspicious',
-          reason: `Pattern match: ${pattern}`
-        };
-      }
+    // --- Insecure Protocol (HTTP) ---
+    if (fullUrl.startsWith('http://')) score += 20; // Explicitly penalize HTTP
+
+    // --- Final Score Evaluation ---
+    if (score >= 80) { // Increased threshold for critical
+      return {
+        phish_id: 'heuristic',
+        url: hostname,
+        target: 'Unknown',
+        verified: 'heuristic',
+        online: 'yes',
+        risk_level: 'critical',
+        threat_type: 'suspicious',
+        reason: `Multiple high-risk indicators detected (score: ${score})`
+      };
+    } else if (score >= 50) { // Increased threshold for high
+      return {
+        phish_id: 'heuristic',
+        url: hostname,
+        target: 'Unknown',
+        verified: 'heuristic',
+        online: 'yes',
+        risk_level: 'high',
+        threat_type: 'suspicious',
+        reason: `Multiple suspicious indicators detected (score: ${score})`
+      };
+    } else if (score >= 25) { // Increased threshold for medium
+      return {
+        phish_id: 'heuristic',
+        url: hostname,
+        target: 'Unknown',
+        verified: 'heuristic',
+        online: 'yes',
+        risk_level: 'medium',
+        threat_type: 'suspicious',
+        reason: `Some suspicious indicators detected (score: ${score})`
+      };
     }
 
     return null;
@@ -406,6 +417,29 @@ class PhishingDatabase {
 
   async checkUrl(url) {
     try {
+      // 0) Check if URL is in safe sites (user marked as safe)
+      const safeResult = await chrome.storage.local.get('safeSites');
+      const safeSites = safeResult.safeSites || [];
+      if (safeSites.includes(url)) {
+        return null; // Safe
+      }
+
+      // 1) Check if URL is in reported sites
+      const reportedResult = await chrome.storage.local.get('reportedSites');
+      const reportedSites = reportedResult.reportedSites || [];
+      if (reportedSites.includes(url)) {
+        return {
+          phish_id: 'reported',
+          url: new URL(url).hostname,
+          target: 'User Reported',
+          verified: 'reported',
+          online: 'yes',
+          risk_level: 'high',
+          threat_type: 'reported',
+          reason: 'Site reported by user as suspicious'
+        };
+      }
+
       // 1) Check if URL uses insecure HTTP (not HTTPS) - flag as unsafe
       if (url.startsWith('http://')) {
         return {
@@ -491,12 +525,13 @@ class PhishingDatabase {
     const benignDomainsWithPathChecks = [
       'github.com',
       'gitlab.com',
-      'bitbucket.org'
+      'bitbucket.org',
+      'afternic.com'
     ];
 
     if (benignDomainsWithPathChecks.some(domain => hostname === domain || hostname.endsWith('.' + domain))) {
       const suspiciousPathPatterns = [
-        /malware|virus|trojan|hacker/i,
+        /malware|virus|trojan|hacker|malicious/i,
         /exploit|vulnerability/i,
         /phishing|scam/i
       ];
@@ -525,19 +560,32 @@ const phishingDB = new PhishingDatabase();
 
 chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   if (details.frameId === 0) {
-    const threat = await phishingDB.checkUrl(details.url);
-    if (threat) {
-      await chrome.storage.session.set({
-        [`threat_${details.tabId}`]: {
-          ...threat,
-          currentUrl: details.url,
-          timestamp: Date.now(),
-        },
+    chrome.storage.local.get(['sitesChecked', 'threatsBlocked'], (result) => {
+      let sitesChecked = result.sitesChecked || 0;
+      let threatsBlocked = result.threatsBlocked || 0;
+      sitesChecked++;
+
+      chrome.storage.local.get('realTimeProtection', async (result) => {
+        if (result.realTimeProtection !== false) {
+          const threat = await phishingDB.checkUrl(details.url);
+          if (threat) {
+            threatsBlocked++;
+            await chrome.storage.session.set({
+              [`threat_${details.tabId}`]: {
+                ...threat,
+                currentUrl: details.url,
+                timestamp: Date.now(),
+              },
+            });
+          } else {
+            // Clear threat data if no threat detected for this URL
+            await chrome.storage.session.remove(`threat_${details.tabId}`);
+          }
+        }
       });
-    } else {
-      // Clear threat data if no threat detected for this URL
-      await chrome.storage.session.remove(`threat_${details.tabId}`);
-    }
+
+      chrome.storage.local.set({ sitesChecked, threatsBlocked });
+    });
   }
 });
 
