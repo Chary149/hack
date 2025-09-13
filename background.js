@@ -864,6 +864,34 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       })();
       return true; // Indicates that sendResponse will be called asynchronously
 
+    case 'TOGGLE_KEYLOGGER_PROTECTION':
+      (async () => {
+        const isEnabled = request.enabled;
+        await chrome.storage.local.set({ keyloggerProtectionEnabled: isEnabled });
+        // Send message to content script in the active tab
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          if (tabs.length > 0) {
+            chrome.tabs.sendMessage(tabs[0].id, { type: 'TOGGLE_KEYLOGGER_PROTECTION', enabled: isEnabled });
+          }
+        });
+        sendResponse({ success: true });
+      })();
+      return true; // Indicates that sendResponse will be called asynchronously
+
+    case 'TOGGLE_KEYLOGGER_BLOCKING':
+      (async () => {
+        const isEnabled = request.enabled;
+        await chrome.storage.local.set({ keyloggerBlocking: isEnabled });
+        // Send message to content script in the active tab
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          if (tabs.length > 0) {
+            chrome.tabs.sendMessage(tabs[0].id, { type: 'TOGGLE_KEYLOGGER_BLOCKING', enabled: isEnabled });
+          }
+        });
+        sendResponse({ success: true });
+      })();
+      return true; // Indicates that sendResponse will be called asynchronously
+
     default:
       break;
   }

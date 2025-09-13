@@ -1,9 +1,268 @@
+class KeyloggerProtection {
+  constructor() {
+    this.protectedInputs = new Map(); // Map original input element to its real value
+    this.mutationObserver = null;
+    this._isEnabled = false; // New property to track state
+  }
+
+  init() {
+    // This method will now be called by enable() if the feature is active
+    // No direct calls to findAndProtectInputs or setupMutationObserver here
+    // Add cleanup on page unload
+    window.addEventListener('beforeunload', () => {
+      this.cleanup();
+    });
+  }
+
+  enable() {
+    if (this._isEnabled) return;
+    this._isEnabled = true;
+    this.findAndProtectInputs();
+    this.setupMutationObserver();
+    console.log('PhishGuard: Keylogger protection ENABLED.');
+  }
+
+  disable() {
+    if (!this._isEnabled) return;
+    this._isEnabled = false;
+    this.cleanup(); // Cleanup existing protected inputs and observers
+    console.log('PhishGuard: Keylogger protection DISABLED.');
+  }
+
+  setupMutationObserver() {
+    this.mutationObserver = new MutationObserver(mutations => {
+      mutations.forEach(mutation => {
+        if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+          mutation.addedNodes.forEach(node => {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              // Check for new sensitive inputs
+              const selectors = [
+                'input[type="password"]',
+                'input[type="email"]',
+                'input[name*="email"]',
+                'input[name*="card"]',
+                'input[name*="credit"]',
+                'input[name*="bank"]',
+                'input[name*="account"]',
+                'input[placeholder*="password"]',
+                'input[placeholder*="email"]',
+                'input[placeholder*="card"]'
+              ];
+              selectors.forEach(selector => {
+                if (node.matches(selector)) {
+                  this.protectInput(node);
+                }
+                node.querySelectorAll(selector).forEach(input => {
+                  this.protectInput(input);
+                });
+              });
+            }
+          });
+        }
+      });
+    });
+
+    this.mutationObserver.observe(document.body, { childList: true, subtree: true });
+  }
+
+  findAndProtectInputs() {
+    // Target password fields and other sensitive inputs
+    const selectors = [
+      'input[type="password"]',
+      'input[type="email"]',
+      'input[name*="email"]',
+      'input[name*="card"]',
+      'input[name*="credit"]',
+      'input[name*="bank"]',
+      'input[name*="account"]',
+      'input[placeholder*="password"]',
+      'input[placeholder*="email"]',
+      'input[placeholder*="card"]'
+    ];
+    selectors.forEach(selector => {
+      document.querySelectorAll(selector).forEach(input => {
+        this.protectInput(input);
+      });
+    });
+  }
+
+  protectInput(originalInput) {
+    if (this.protectedInputs.has(originalInput)) return; // Already protected
+
+    const shadowHost = document.createElement('div');
+    // Insert shadowHost right after the original input for easier positioning
+    originalInput.parentNode.insertBefore(shadowHost, originalInput.nextSibling);
+    const shadowRoot = shadowHost.attachShadow({ mode: 'open' });
+
+    // Create an overlay input within the shadow DOM
+    const overlayInput = document.createElement('input');
+    overlayInput.type = 'text'; // Use text to capture real value, then mask
+    overlayInput.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      caret-color: transparent; /* Hide caret in overlay */
+      z-index: 10000;
+      background: transparent;
+      border: none;
+      padding: ${window.getComputedStyle(originalInput).padding};
+      font-size: ${window.getComputedStyle(originalInput).fontSize};
+      font-family: ${window.getComputedStyle(originalInput).fontFamily};
+      color: transparent; /* Hide actual input in overlay */
+    `;
+    shadowRoot.appendChild(overlayInput);
+
+    // Initial positioning
+    const updatePosition = () => {
+      const rect = originalInput.getBoundingClientRect();
+      shadowHost.style.cssText = `
+        position: absolute;
+        top: ${rect.top + window.scrollY}px;
+        left: ${rect.left + window.scrollX}px;
+        width: ${rect.width}px;
+        height: ${rect.height}px;
+        z-index: ${parseInt(window.getComputedStyle(originalInput).zIndex || '0') + 1};
+        pointer-events: none; /* Allow clicks to pass through initially */
+      `;
+    };
+
+    updatePosition(); // Set initial position
+
+    // Observe for resizing of the original input
+    const resizeObserver = new ResizeObserver(updatePosition);
+    resizeObserver.observe(originalInput);
+
+    // Observe for scrolling and visibility changes
+    const intersectionObserver = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          updatePosition();
+        }
+      });
+    }, { root: null, threshold: 0 }); // root: null means viewport, threshold: 0 means any intersection
+    intersectionObserver.observe(originalInput);
+
+    // Make original input read-only and visually masked
+    originalInput.readOnly = true;
+    originalInput.style.webkitTextSecurity = 'disc'; // For Safari/iOS password masking
+    originalInput.type = 'text'; // Change type to text to apply custom masking
+    originalInput.value = ''; // Clear initial value
+
+    this.protectedInputs.set(originalInput, {
+      realValue: '',
+      overlayInput: overlayInput,
+      shadowHost: shadowHost,
+      originalType: originalInput.type, // Store original type for restoration
+      resizeObserver: resizeObserver,
+      intersectionObserver: intersectionObserver
+    });
+
+    // Event listeners for the overlay input
+    overlayInput.addEventListener('input', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const protectedData = this.protectedInputs.get(originalInput);
+      if (protectedData) {
+        protectedData.realValue = overlayInput.value;
+        // Update original input with decoy characters
+        originalInput.value = '•'.repeat(overlayInput.value.length);
+      }
+    }, true);
+
+    overlayInput.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      // Handle backspace/delete for decoy characters
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        const protectedData = this.protectedInputs.get(originalInput);
+        if (protectedData && originalInput.value.length > 0) {
+          originalInput.value = originalInput.value.slice(0, -1);
+        }
+      }
+    }, true);
+
+    // Focus management: when original input is focused, transfer focus to overlay
+    originalInput.addEventListener('focus', () => {
+      shadowHost.style.pointerEvents = 'auto'; // Enable pointer events on shadow host
+      overlayInput.focus();
+    });
+
+    overlayInput.addEventListener('blur', () => {
+      shadowHost.style.pointerEvents = 'none'; // Disable pointer events on shadow host
+    });
+
+    // Ensure overlay input stays focused when typing
+    originalInput.addEventListener('click', () => {
+      overlayInput.focus();
+    });
+
+    // Handle form submission
+    const form = originalInput.closest('form');
+    if (form) {
+      form.addEventListener('submit', (e) => {
+        this.handleFormSubmission(e, form);
+      }, true); // Use capture phase to ensure our listener runs first
+    }
+  }
+
+  handleFormSubmission(event, form) {
+    event.preventDefault(); // Prevent default form submission
+
+    // Temporarily inject real values into original inputs
+    this.protectedInputs.forEach((data, originalInput) => {
+      originalInput.value = data.realValue;
+      originalInput.readOnly = false; // Make writable for submission
+      originalInput.type = data.originalType; // Restore original type
+    });
+
+    // Trigger the form submission programmatically
+    form.submit();
+
+    // After submission, restore decoys and readOnly state
+    // Use a microtask to ensure the form has a chance to submit before restoring
+    Promise.resolve().then(() => {
+      this.protectedInputs.forEach((data, originalInput) => {
+        originalInput.readOnly = true;
+        originalInput.type = 'text'; // Mask again
+        originalInput.value = '•'.repeat(data.realValue.length);
+      });
+    });
+  }
+
+  // Method to retrieve real value for a given input (e.g., for background fetch)
+  getRealValue(originalInput) {
+    return this.protectedInputs.get(originalInput)?.realValue || '';
+  }
+
+  // Cleanup method for when protection is disabled or page unloads
+  cleanup() {
+    if (this.mutationObserver) {
+      this.mutationObserver.disconnect();
+    }
+    this.protectedInputs.forEach((data, originalInput) => {
+      originalInput.readOnly = false;
+      originalInput.type = data.originalType;
+      originalInput.value = data.realValue; // Restore real value temporarily for cleanup
+      data.shadowHost.remove();
+      data.resizeObserver.disconnect();
+      data.intersectionObserver.disconnect();
+    });
+    this.protectedInputs.clear();
+  }
+}
+
 class PhishGuardProtection {
   constructor() {
     this.keyloggerBlocked = false;
     this.threatInfo = null;
     this.riskScore = 0;
     this.benignData = new Set();
+    this.keyloggerProtection = new KeyloggerProtection(); // Instantiate KeyloggerProtection
+    this.keyloggerBlockingEnabled = false;
+    this.lastEventTime = 0;
+    this.keyloggerBlockingListenersAdded = false;
     this.init();
   }
 
@@ -19,8 +278,34 @@ class PhishGuardProtection {
     // Load benign data first
     await this.loadBenignData();
 
-    // Listen for messages from background script
+    // Load keylogger blocking setting
+    const blockingResult = await chrome.storage.local.get('keyloggerBlocking');
+    this.keyloggerBlockingEnabled = blockingResult.keyloggerBlocking !== false;
+
+    // Initialize Keylogger Protection based on user settings
+    const settings = await chrome.storage.local.get(['keyloggerProtectionEnabled']);
+    if (settings.keyloggerProtectionEnabled !== false) { // Default to enabled
+      this.keyloggerProtection.enable();
+    } else {
+      this.keyloggerProtection.disable();
+    }
+
+    // Setup keylogger blocking
+    this.setupKeyloggerProtection();
+
+    // Listen for messages from background script to toggle keylogger protection
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.type === 'TOGGLE_KEYLOGGER_PROTECTION') {
+        if (message.enabled) {
+          this.keyloggerProtection.enable();
+        } else {
+          this.keyloggerProtection.disable();
+        }
+      }
+      if (message.type === 'TOGGLE_KEYLOGGER_BLOCKING') {
+        this.keyloggerBlockingEnabled = message.enabled;
+        this.setupKeyloggerProtection();
+      }
       if (message.type === 'SHOW_SUCCESS_ANIMATION') {
         this.showSuccessAnimation();
       }
@@ -378,10 +663,13 @@ class PhishGuardProtection {
   }
 
   setupKeyloggerProtection() {
+    if (this.keyloggerBlockingListenersAdded) return; // Already set up
+    this.keyloggerBlockingListenersAdded = true;
+
     const protectedEvents = ['keydown', 'keypress', 'keyup', 'input', 'paste'];
     protectedEvents.forEach(eventType => {
       document.addEventListener(eventType, (event) => {
-        if (this.threatInfo && this.detectSuspiciousKeylogging(event)) {
+        if (this.keyloggerBlockingEnabled && this.threatInfo && this.detectSuspiciousKeylogging(event)) {
           event.stopImmediatePropagation();
           event.preventDefault();
           this.showKeyloggerBlocked();
@@ -425,11 +713,11 @@ class PhishGuardProtection {
   }
 
 
-  detectSuspiciousKeylogging(event, lastEventTime) {
-    return (
-      event.timeStamp - lastEventTime < 10 ||
-      (event.target && event.target.tagName === 'INPUT' && event.target.type === 'password' && !event.isTrusted)
-    );
+  detectSuspiciousKeylogging(event) {
+    const isRapid = event.timeStamp - this.lastEventTime < 10;
+    this.lastEventTime = event.timeStamp;
+    const isUntrustedPassword = event.target && event.target.tagName === 'INPUT' && event.target.type === 'password' && !event.isTrusted;
+    return isRapid || isUntrustedPassword;
   }
 
   setupFormProtection() {

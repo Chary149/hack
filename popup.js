@@ -318,12 +318,14 @@ class ModernPopupInterface {
       const result = await chrome.storage.local.get([
         'realTimeProtection', 
         'keyloggerBlocking', 
-        'educationalAlerts'
+        'educationalAlerts',
+        'keyloggerProtectionEnabled' // Add new setting
       ]);
 
       this.updateToggle('realTimeToggle', result.realTimeProtection !== false);
       this.updateToggle('keyloggerToggle', result.keyloggerBlocking !== false);
       this.updateToggle('educationToggle', result.educationalAlerts !== false);
+      this.updateToggle('keyloggerMitigationToggle', result.keyloggerProtectionEnabled !== false); // Update new toggle
     } catch (error) {
       console.error('Failed to setup toggles:', error);
     }
@@ -341,16 +343,23 @@ class ModernPopupInterface {
   async toggleSetting(toggle, settingName) {
     toggle.classList.toggle('active');
     const isActive = toggle.classList.contains('active');
-    
+
     try {
       await chrome.storage.local.set({ [settingName]: isActive });
+      // Send messages to background for real-time updates
+      if (settingName === 'keyloggerProtectionEnabled') {
+        chrome.runtime.sendMessage({ type: 'TOGGLE_KEYLOGGER_PROTECTION', enabled: isActive });
+      }
+      if (settingName === 'keyloggerBlocking') {
+        chrome.runtime.sendMessage({ type: 'TOGGLE_KEYLOGGER_BLOCKING', enabled: isActive });
+      }
     } catch (error) {
       console.error('Failed to save setting:', error);
     }
 
     // Add haptic feedback simulation
     this.addToggleFeedback(toggle);
-    
+
     // Show notification
     const status = isActive ? 'enabled' : 'disabled';
     this.showNotification(`${settingName.replace(/([A-Z])/g, ' $1').toLowerCase()} ${status}`);
