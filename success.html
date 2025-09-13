@@ -1,0 +1,299 @@
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Shield Lock Animation</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <style>
+            @keyframes shieldPopIn {
+                0% {
+                    transform: scale(0) rotate(-180deg);
+                    opacity: 0;
+                }
+                50% {
+                    transform: scale(1.2) rotate(0deg);
+                    opacity: 1;
+                }
+                70% {
+                    transform: scale(0.95) rotate(0deg);
+                    opacity: 1;
+                }
+                100% {
+                    transform: scale(1) rotate(0deg);
+                    opacity: 1;
+                }
+            }
+
+            @keyframes lockSlideIn {
+                0% {
+                    transform: translateY(-20px) scale(0.5);
+                    opacity: 0;
+                }
+                100% {
+                    transform: translateY(0) scale(1);
+                    opacity: 1;
+                }
+            }
+
+            @keyframes glowPulse {
+                0%, 100% {
+                    box-shadow: 0 0 20px rgba(34, 197, 94, 0.4);
+                }
+                50% {
+                    box-shadow: 0 0 40px rgba(34, 197, 94, 0.8);
+                }
+            }
+
+            @keyframes fadeOut {
+                0% {
+                    opacity: 1;
+                    transform: scale(1);
+                }
+                100% {
+                    opacity: 0;
+                    transform: scale(1.5);
+                }
+            }
+
+            .shield-container {
+                animation: shieldPopIn 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            }
+
+            .lock-icon {
+                animation: lockSlideIn 0.6s ease-out 0.4s both;
+            }
+
+            .glow-effect {
+                animation: glowPulse 2s ease-in-out infinite;
+            }
+
+            .fade-out {
+                animation: fadeOut 1s ease-in-out forwards;
+            }
+
+            .shield-svg {
+                filter: drop-shadow(0 10px 25px rgba(34, 197, 94, 0.3));
+            }
+        </style>
+    </head>
+    <body class="bg-gray-900 min-h-screen flex items-center justify-center overflow-hidden">
+        <div class="relative">
+            <!-- Background glow effect -->
+            <div class="absolute inset-0 bg-green-500 rounded-full opacity-20 blur-3xl scale-150 glow-effect"></div>
+
+            <!-- Shield container -->
+            <div id="shieldAnimation" class="shield-container relative z-10">
+                <!-- Shield SVG -->
+                <svg class="shield-svg w-56 h-64" viewBox="0 0 120 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Shield gradient definitions -->
+                    <defs>
+                        <!-- Main metallic shield gradient -->
+                        <linearGradient id="shieldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#34d399;stop-opacity:1" />
+                            <stop offset="15%" style="stop-color:#10b981;stop-opacity:1" />
+                            <stop offset="35%" style="stop-color:#059669;stop-opacity:1" />
+                            <stop offset="65%" style="stop-color:#047857;stop-opacity:1" />
+                            <stop offset="85%" style="stop-color:#065f46;stop-opacity:1" />
+                            <stop offset="100%" style="stop-color:#064e3b;stop-opacity:1" />
+                        </linearGradient>
+
+                        <!-- 3D bevel effect -->
+                        <linearGradient id="bevelTop" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.6" />
+                            <stop offset="50%" style="stop-color:#ffffff;stop-opacity:0.2" />
+                            <stop offset="100%" style="stop-color:#ffffff;stop-opacity:0" />
+                        </linearGradient>
+
+                        <linearGradient id="bevelBottom" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" style="stop-color:#000000;stop-opacity:0" />
+                            <stop offset="50%" style="stop-color:#000000;stop-opacity:0.2" />
+                            <stop offset="100%" style="stop-color:#000000;stop-opacity:0.5" />
+                        </linearGradient>
+
+                        <!-- Metallic shine -->
+                        <linearGradient id="metallicShine" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0" />
+                            <stop offset="30%" style="stop-color:#ffffff;stop-opacity:0.4" />
+                            <stop offset="70%" style="stop-color:#ffffff;stop-opacity:0.4" />
+                            <stop offset="100%" style="stop-color:#ffffff;stop-opacity:0" />
+                        </linearGradient>
+
+                        <!-- Rivet gradients -->
+                        <radialGradient id="rivetGradient" cx="30%" cy="30%" r="70%">
+                            <stop offset="0%" style="stop-color:#6b7280;stop-opacity:1" />
+                            <stop offset="50%" style="stop-color:#4b5563;stop-opacity:1" />
+                            <stop offset="100%" style="stop-color:#1f2937;stop-opacity:1" />
+                        </radialGradient>
+
+                        <!-- Lock gradient -->
+                        <linearGradient id="lockGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
+                            <stop offset="100%" style="stop-color:#e5e7eb;stop-opacity:1" />
+                        </linearGradient>
+
+                        <!-- Shadow filter -->
+                        <filter id="innerShadow" x="-50%" y="-50%" width="200%" height="200%">
+                            <feGaussianBlur in="SourceGraphic" stdDeviation="2"/>
+                            <feOffset dx="2" dy="2" result="offset"/>
+                            <feFlood flood-color="#000000" flood-opacity="0.3"/>
+                            <feComposite in2="offset" operator="in"/>
+                            <feMerge>
+                                <feMergeNode/>
+                                <feMergeNode in="SourceGraphic"/>
+                            </feMerge>
+                        </filter>
+                    </defs>
+
+                    <!-- Shield shadow -->
+                    <path d="M62 10
+                            C37 10, 17 17, 17 32
+                            L17 72
+                            C17 87, 27 102, 42 117
+                            L62 137
+                            L82 117
+                            C97 102, 107 87, 107 72
+                            L107 32
+                            C107 17, 87 10, 62 10 Z"
+                        fill="#000000"
+                        opacity="0.3"/>
+
+                    <!-- Main shield shape -->
+                    <path d="M60 8
+                            C35 8, 15 15, 15 30
+                            L15 70
+                            C15 85, 25 100, 40 115
+                            L60 135
+                            L80 115
+                            C95 100, 105 85, 105 70
+                            L105 30
+                            C105 15, 85 8, 60 8 Z"
+                        fill="url(#shieldGradient)"
+                        stroke="#064e3b"
+                        stroke-width="1.5"/>
+
+                    <!-- 3D bevel highlight -->
+                    <path d="M60 8
+                            C35 8, 15 15, 15 30
+                            L15 50
+                            C15 45, 35 42, 60 42
+                            C85 42, 105 45, 105 50
+                            L105 30
+                            C105 15, 85 8, 60 8 Z"
+                        fill="url(#bevelTop)"/>
+
+                    <!-- 3D bevel shadow -->
+                    <path d="M60 135
+                            L40 115
+                            C25 100, 15 85, 15 70
+                            L15 90
+                            C15 105, 25 120, 40 135
+                            L60 155
+                            L80 135
+                            C95 120, 105 105, 105 90
+                            L105 70
+                            C105 85, 95 100, 80 115
+                            L60 135 Z"
+                        fill="url(#bevelBottom)"/>
+
+                    <!-- Metallic shine effect -->
+                    <ellipse cx="45" cy="35" rx="15" ry="8" fill="url(#metallicShine)" opacity="0.6" transform="rotate(-15 45 35)"/>
+
+                    <!-- Decorative border -->
+                    <path d="M60 12
+                            C38 12, 20 18, 20 30
+                            L20 70
+                            C20 83, 28 96, 42 110
+                            L60 128
+                            L78 110
+                            C92 96, 100 83, 100 70
+                            L100 30
+                            C100 18, 82 12, 60 12 Z"
+                        fill="none"
+                        stroke="#10b981"
+                        stroke-width="1"/>
+
+                    <!-- Realistic rivets with 3D effect -->
+                    <g>
+                        <!-- Top rivets -->
+                        <circle cx="35" cy="25" r="3" fill="url(#rivetGradient)" stroke="#374151" stroke-width="0.5"/>
+                        <circle cx="35" cy="25" r="1.5" fill="#9ca3af"/>
+                        <circle cx="85" cy="25" r="3" fill="url(#rivetGradient)" stroke="#374151" stroke-width="0.5"/>
+                        <circle cx="85" cy="25" r="1.5" fill="#9ca3af"/>
+
+                        <!-- Side rivets -->
+                        <circle cx="25" cy="50" r="3" fill="url(#rivetGradient)" stroke="#374151" stroke-width="0.5"/>
+                        <circle cx="25" cy="50" r="1.5" fill="#9ca3af"/>
+                        <circle cx="95" cy="50" r="3" fill="url(#rivetGradient)" stroke="#374151" stroke-width="0.5"/>
+                        <circle cx="95" cy="50" r="1.5" fill="#9ca3af"/>
+
+                        <!-- Bottom rivets -->
+                        <circle cx="40" cy="85" r="3" fill="url(#rivetGradient)" stroke="#374151" stroke-width="0.5"/>
+                        <circle cx="40" cy="85" r="1.5" fill="#9ca3af"/>
+                        <circle cx="80" cy="85" r="3" fill="url(#rivetGradient)" stroke="#374151" stroke-width="0.5"/>
+                        <circle cx="80" cy="85" r="1.5" fill="#9ca3af"/>
+                    </g>
+
+                    <!-- Heraldic cross pattern -->
+                    <g stroke="rgba(255,255,255,0.15)" stroke-width="1.5" fill="none">
+                        <path d="M60 20 L60 50"/>
+                        <path d="M45 35 L75 35"/>
+                    </g>
+
+                    <!-- Battle damage/wear marks -->
+                    <g stroke="rgba(0,0,0,0.2)" stroke-width="0.8" fill="none">
+                        <path d="M30 40 L35 45"/>
+                        <path d="M85 60 L90 55"/>
+                        <path d="M50 90 L55 85"/>
+                    </g>
+                </svg>
+
+                <!-- Lock icon -->
+                <div class="lock-icon absolute inset-0 flex items-center justify-center">
+                    <svg class="w-12 h-12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <!-- Lock body -->
+                        <rect x="6" y="11" width="12" height="8" rx="2" fill="url(#lockGradient)" stroke="rgba(255,255,255,0.5)" stroke-width="0.5"/>
+
+                        <!-- Lock shackle -->
+                        <path d="M8 11V7a4 4 0 0 1 8 0v4" stroke="url(#lockGradient)" stroke-width="2" stroke-linecap="round"/>
+
+                        <!-- Lock keyhole -->
+                        <circle cx="12" cy="15" r="1.5" fill="rgba(16, 185, 129, 0.8)"/>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Success text -->
+            <div id="successText" class="lock-icon absolute -bottom-16 left-1/2 transform -translate-x-1/2 text-green-400 font-semibold text-lg whitespace-nowrap">
+                🔒 Secured Successfully
+            </div>
+        </div>
+
+        <script>
+            function startAnimation() {
+                const shield = document.getElementById('shieldAnimation');
+                const text = document.getElementById('successText');
+
+                // Reset classes
+                shield.classList.remove('fade-out');
+                text.classList.remove('fade-out');
+
+                // Trigger reflow to restart animation
+                shield.offsetHeight;
+                text.offsetHeight;
+
+                // Start fade out after 3 seconds
+                setTimeout(() => {
+                    shield.classList.add('fade-out');
+                    text.classList.add('fade-out');
+                }, 3000);
+            }
+
+            // Start animation on load
+            startAnimation();
+
+            // Auto-restart every 6 seconds for demo
+            setInterval(startAnimation, 6000);
+        </script>
+    </body>
+    </html>

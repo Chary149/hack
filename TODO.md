@@ -1,35 +1,32 @@
-# TODO: Resolve Force Loading Benign Data, Fix False Positives, Popup Issues, Add Reporting and Safe Marking
+# TODO: Resolve Force Loading Benign Data and Block Redirects
 
 ## Completed Changes
-- Modified `loadBenignData()` in `background.js` to check cache first before loading fallback data
-- Added caching of benign data after loading from `benign.json`
-- Updated `isBenign()` to check known benign data before calling Google Safe Browsing API
-- Changed console logs to remove "Force loading" and "No API endpoint configured" messages
-- Added error handling for cached data to prevent TypeError
-- Added afternic.com to benign domains with path checks and included "malicious" in suspicious patterns
-- Fixed "Leave Site" button in popup.js to redirect to a safe page instead of just closing
-- Added reporting functionality: clicking report marks site as suspicious, adds to reported sites storage
-- Added unreport button for reported sites, removes from reported list
-- Modified checkUrl to flag reported sites as threats
-- Added "Mark as Safe" button for threats, adds to safe sites list and removes from reported
-- Modified checkUrl to skip checking safe sites marked by user
+- [x] Modified `loadBenignData()` in `background.js` to check cache first before loading fallback data
+- [x] Added caching of benign data after loading from `benign.json`
+- [x] Updated `isBenign()` to check known benign data before calling Google Safe Browsing API
+- [x] Changed console logs to remove "Force loading" and "No API endpoint configured" messages
+- [x] Added synchronous blocking of known phishing sites in `onBeforeNavigate` to block redirects to unsecure websites
+- [x] Added loaded flag to ensure database is loaded before navigation checks
+- [x] Fixed TypeError in onBeforeNavigate listener by checking if transitionType exists before calling includes()
+- [x] Enhanced redirect blocking by performing full URL check on redirects to catch unwanted website redirects
+- [x] Added blocking of redirects to unsecure HTTP websites
+- [x] Implemented redirect detection with navigation chain tracking
+- [x] Added file type analysis for download protection
+- [x] Integrated domain reputation checking for downloads
+- [x] Added user preferences whitelist for trusted sites
+- [x] Implemented quarantine option with download blocking and notifications
+- [x] Added logging for blocked downloads
 
 ## Next Steps
-- Test the extension to verify benign data loads from cache on subsequent runs
-- Verify that known benign sites are correctly identified without API calls
-- Check console logs no longer show force loading messages
-- Verify that suspicious parked domains on afternic.com are flagged
-- Verify that "Leave Site" button redirects to a safe page
-- Verify that reporting a site marks it as suspicious and shows unreport button
-- Verify that unreporting removes the threat status
-- Verify that marking a threat as safe removes the threat flag and adds to safe list
-- If backend.js is used, apply similar changes
+- [ ] Test the extension to verify benign data loads from cache on subsequent runs
+- [ ] Verify that known benign sites are correctly identified without API calls
+- [ ] Check console logs no longer show force loading messages
+- [ ] Verify that redirects to known phishing sites are blocked
+- [ ] Verify no more TypeError in event handler
 
 ## Notes
 - API endpoint remains null, so benign data loads from local `benign.json`
 - Caching implemented with 24-hour expiry
 - Google Safe Browsing API key is configured for threat checking
-- Added checks for cached data validity to prevent errors
-- Fixed false positive for afternic.com parked pages with malicious domain names
-- "Leave Site" now redirects to google.com for safety
-- Reported sites and safe sites are stored in chrome.storage.local and checked in checkUrl
+- Synchronous blocking implemented for known threats to handle redirects
+- Fixed undefined transitionType issue in navigation listener

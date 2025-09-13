@@ -9,7 +9,9 @@
     "scripting",
     "webNavigation",
     "tabs",
-    "background"
+    "background",
+    "downloads",
+    "notifications"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -42,10 +44,9 @@
     "128": "icons/icon128.png"
   },
   "web_accessible_resources": [
-  {
-    "resources": ["warning.html", "education.html", "styles-modern.css", "data.json", "benign.json"],
-    "matches": ["<all_urls>"]
-  }
-]
-
+    {
+      "resources": ["warning.html", "education.html", "styles-modern.css", "data.json", "benign.json", "warning.js", "success-shield.png", "success.png"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

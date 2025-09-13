@@ -7,10 +7,12 @@ class DynamicBenignManager {
     // Set your API endpoint and key here:
     this.apiEndpoint = null; // Set to null to use fallback data only
     this.apiKey = 'AIzaSyBRAURluW18zAoKggEcVB16azODh1ohiks'; // Google Safe Browsing API key
+    this.loaded = false;
   }
 
   async initialize() {
     await this.loadBenignData();
+    this.loaded = true;
   }
 
   async loadBenignData() {
@@ -262,6 +264,7 @@ class PhishingDatabase {
   constructor() {
     this.phishingData = new Map();
     this.benignManager = new DynamicBenignManager();
+    this.loaded = false;
     this.loadDatabase();
   }
 
@@ -297,6 +300,8 @@ class PhishingDatabase {
       sampleData.forEach(entry => this.phishingData.set(entry.url, entry));
       console.log('Sample phishing database loaded');
     }
+
+    this.loaded = true;
   }
 
 
@@ -554,12 +559,189 @@ class PhishingDatabase {
 
     return null;
   }
+
+  // New: Check Safe Browsing v4
+  async checkSafeBrowsing(url) {
+    const apiKey = this.benignManager.apiKey; // Use API key from benignManager
+    const safeBrowsingUrl = `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${apiKey}`;
+
+    const requestBody = {
+      client: {
+        clientId: "phishguard-extension",
+        clientVersion: "1.0"
+      },
+      threatInfo: {
+        threatTypes: ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE"],
+        platformTypes: ["ANY_PLATFORM"],
+        threatEntryTypes: ["URL"],
+        threatEntries: [{ url: url }]
+      }
+    };
+
+    try {
+      const response = await fetch(safeBrowsingUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      const data = await response.json();
+
+      if (data.matches && data.matches.length > 0) {
+        // Threat detected by Safe Browsing
+        return {
+          phish_id: 'safebrowsing',
+          url: new URL(url).hostname,
+          target: data.matches[0].threatType,
+          verified: 'safebrowsing',
+          online: 'yes',
+          risk_level: 'critical',
+          threat_type: 'malware',
+          reason: `Safe Browsing detected: ${data.matches[0].threatType}`
+        };
+      } else {
+        return null; // No threat from Safe Browsing
+      }
+    } catch (error) {
+      console.error('Safe Browsing check failed in background:', error);
+      return null; // On error, treat as no threat for now
+    }
+  }
+
+  // New: Send to backend for richer analysis
+  async sendToBackend(metadata) {
+    const backendUrl = 'http://localhost:3001/analyze'; // Local backend URL
+
+    try {
+      const response = await fetch(backendUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(metadata)
+      });
+
+      const result = await response.json();
+
+      if (result.isThreat) {
+        return {
+          phish_id: 'backend',
+          url: result.url,
+          target: result.target,
+          verified: 'backend',
+          online: 'yes',
+          risk_level: result.riskLevel,
+          threat_type: result.threatType,
+          reason: result.reason
+        };
+      } else {
+        return null;
+      }
+    } catch (error) {
+      console.error('Backend analysis failed in background:', error);
+      return null;
+    }
+  }
 }
 
 const phishingDB = new PhishingDatabase();
 
+// Track navigation chains for redirect detection
+const navigationChains = new Map();
+
 chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   if (details.frameId === 0) {
+    // Track navigation chain
+    if (!navigationChains.has(details.tabId)) {
+      navigationChains.set(details.tabId, []);
+    }
+    navigationChains.get(details.tabId).push({
+      url: details.url,
+      timestamp: Date.now(),
+      transitionType: details.transitionType
+    });
+    // Keep last 20 entries
+    if (navigationChains.get(details.tabId).length > 20) {
+      navigationChains.get(details.tabId).shift();
+    }
+
+    const url = details.url;
+    const hostname = new URL(url).hostname;
+    const normalizedHostname = hostname.replace(/^www\./, '');
+    const isRedirect = details.transitionType && details.transitionType.includes('redirect');
+
+    // Show success animation page on new secured URL if not shown before
+    if (!isRedirect && phishingDB.benignManager.loaded && phishingDB.benignManager.benignData.has(normalizedHostname)) {
+      const shownKey = `shownSuccess_${normalizedHostname}`;
+      console.log('Checking success page shown key:', shownKey);
+      chrome.storage.local.get([shownKey], (result) => {
+        console.log('Success page shown key result:', result);
+        if (!result[shownKey]) {
+          console.log('Opening success.html for', normalizedHostname);
+          // Instead of opening a new tab, send message to content script to show animation
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs.length > 0) {
+              chrome.tabs.sendMessage(tabs[0].id, { type: 'SHOW_SUCCESS_ANIMATION' }, function() {
+                if (chrome.runtime.lastError) {
+                  console.warn("Error sending SHOW_SUCCESS_ANIMATION message:", chrome.runtime.lastError.message);
+                }
+              });
+            }
+          });
+          chrome.storage.local.set({ [shownKey]: true });
+        }
+      });
+    }
+
+    // Allow benign sites
+    if (phishingDB.benignManager.benignData.has(normalizedHostname)) {
+      return;
+    }
+
+    // For redirects, block unsecure HTTP websites and perform full threat check
+    if (isRedirect) {
+      if (url.startsWith('http://')) {
+        const threat = {
+          phish_id: 'unsecure_redirect',
+          url: hostname,
+          target: 'Security',
+          verified: 'protocol',
+          online: 'yes',
+          risk_level: 'high',
+          threat_type: 'insecure_redirect',
+          reason: 'Redirect to unsecure HTTP website blocked'
+        };
+        chrome.tabs.update(details.tabId, { url: chrome.runtime.getURL('warning.html') + '?threat=' + encodeURIComponent(JSON.stringify({ ...threat, isRedirect: true })) });
+        return { cancel: true };
+      }
+      const threat = await phishingDB.checkUrl(url);
+      if (threat) {
+        chrome.tabs.update(details.tabId, { url: chrome.runtime.getURL('warning.html') + '?threat=' + encodeURIComponent(JSON.stringify({ ...threat, isRedirect: true })) });
+        return { cancel: true };
+      }
+    }
+
+
+
+    // Block known phishing sites
+    if (phishingDB.phishingData.has(hostname) || Array.from(phishingDB.phishingData.keys()).some(key => hostname.endsWith('.' + key))) {
+      const threat = phishingDB.phishingData.get(hostname) || Array.from(phishingDB.phishingData.values()).find(entry => hostname.endsWith('.' + entry.url));
+      if (threat) {
+        chrome.tabs.update(details.tabId, { url: chrome.runtime.getURL('warning.html') + '?threat=' + encodeURIComponent(JSON.stringify({ ...threat, isRedirect })) });
+        return { cancel: true };
+      }
+    }
+
+    // Check heuristic for high risk (critical/high) or redirects
+    const heuristicThreat = phishingDB.heuristicCheck(hostname, url);
+    if (heuristicThreat && (heuristicThreat.risk_level === 'critical' || heuristicThreat.risk_level === 'high')) {
+      chrome.tabs.update(details.tabId, { url: chrome.runtime.getURL('warning.html') + '?threat=' + encodeURIComponent(JSON.stringify({ ...heuristicThreat, isRedirect })) });
+      return { cancel: true };
+    }
+
+    // For other checks, allow navigation but log
     chrome.storage.local.get(['sitesChecked', 'threatsBlocked'], (result) => {
       let sitesChecked = result.sitesChecked || 0;
       let threatsBlocked = result.threatsBlocked || 0;
@@ -586,6 +768,29 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
 
       chrome.storage.local.set({ sitesChecked, threatsBlocked });
     });
+
+    // Trigger success for verified secured URLs
+    if (!isRedirect) {
+      const shownKey = `shownSuccess_${normalizedHostname}`;
+      console.log('Checking success page shown key for verified URL:', shownKey);
+      chrome.storage.local.get([shownKey], (result) => {
+        console.log('Success page shown key result:', result);
+        if (!result[shownKey]) {
+          console.log('Opening success.html for verified', normalizedHostname);
+          // Instead of opening a new tab, send message to content script to show animation
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs.length > 0) {
+              chrome.tabs.sendMessage(tabs[0].id, { type: 'SHOW_SUCCESS_ANIMATION' }, function() {
+                if (chrome.runtime.lastError) {
+                  console.warn("Error sending SHOW_SUCCESS_ANIMATION message:", chrome.runtime.lastError.message);
+                }
+              });
+            }
+          });
+          chrome.storage.local.set({ [shownKey]: true });
+        }
+      });
+    }
   }
 });
 
@@ -620,6 +825,45 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ tabId: sender.tab ? sender.tab.id : null });
       return true;
 
+    case 'CHECK_REDIRECT':
+      phishingDB.checkUrl(request.url).then(threat => {
+        if (threat) {
+          console.log('Redirect to threat detected:', request.url);
+          chrome.tabs.update(sender.tab.id, { url: chrome.runtime.getURL('warning.html') + '?threat=' + encodeURIComponent(JSON.stringify(threat)) });
+        }
+      });
+      break;
+
+    case 'PERFORM_EXTERNAL_ANALYSIS':
+      (async () => {
+        const url = request.url;
+        const metadata = {
+          url: url,
+          riskScore: request.riskScore,
+          hasPasswordFields: request.hasPasswordFields,
+          hasLoginForm: request.hasLoginForm,
+          userAgent: request.userAgent,
+          referrer: request.referrer,
+          timestamp: request.timestamp
+        };
+
+        let threat = null;
+
+        // First, check Google Safe Browsing
+        const safeBrowsingThreat = await phishingDB.checkSafeBrowsing(url);
+        if (safeBrowsingThreat) {
+          threat = safeBrowsingThreat;
+        } else {
+          // If no Safe Browsing threat, send to backend for richer analysis
+          const backendThreat = await phishingDB.sendToBackend(metadata);
+          if (backendThreat) {
+            threat = backendThreat;
+          }
+        }
+        sendResponse({ threat: threat });
+      })();
+      return true; // Indicates that sendResponse will be called asynchronously
+
     default:
       break;
   }
@@ -632,5 +876,49 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
     chrome.action.setBadgeBackgroundColor({ color: '#ff4444' });
   } else {
     chrome.action.setBadgeText({ text: '', tabId: activeInfo.tabId });
+  }
+});
+
+// Download protection with quarantine
+chrome.downloads.onCreated.addListener(async (downloadItem) => {
+  const url = downloadItem.url;
+  const filename = downloadItem.filename || '';
+  const extension = filename.split('.').pop().toLowerCase();
+
+  // List of potentially dangerous file extensions
+  const dangerousExtensions = ['exe', 'bat', 'cmd', 'js', 'vbs', 'scr', 'pif', 'com', 'cpl', 'jar', 'msi', 'msp', 'reg', 'hta', 'ps1', 'psm1', 'lnk'];
+
+  // Check domain reputation
+  const domain = (new URL(url)).hostname;
+  const isMaliciousDomain = await phishingDB.benignManager.isBenign(domain) === false;
+
+  // User preferences whitelist
+  const userWhitelist = await new Promise(resolve => {
+    chrome.storage.local.get(['whitelist'], result => {
+      resolve(result.whitelist || []);
+    });
+  });
+
+  if (dangerousExtensions.includes(extension) && !userWhitelist.includes(domain) && isMaliciousDomain) {
+    // Cancel download and notify user
+    chrome.downloads.cancel(downloadItem.id);
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: 'icons/icon48.png',
+      title: 'Download Blocked',
+      message: `Download of potentially dangerous file "${filename}" from ${domain} was blocked and quarantined.`,
+      priority: 2
+    });
+    // Log blocked download
+    chrome.storage.local.get(['blockedDownloads'], result => {
+      const blocked = result.blockedDownloads || [];
+      blocked.push({
+        url,
+        filename,
+        domain,
+        timestamp: Date.now()
+      });
+      chrome.storage.local.set({ blockedDownloads: blocked });
+    });
   }
 });

@@ -19,6 +19,21 @@ class PhishGuardProtection {
     // Load benign data first
     await this.loadBenignData();
 
+    // Listen for messages from background script
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.type === 'SHOW_SUCCESS_ANIMATION') {
+        this.showSuccessAnimation();
+      }
+    });
+
+    // Show success animation if benign site
+    if (this.isTrustedDomain(window.location.hostname)) {
+      this.showSuccessAnimation();
+    }
+
+    // Detect redirect patterns
+    this.detectRedirects();
+
     // Step 1: Compute risk score immediately on page load
     this.computeRiskScore();
 
@@ -28,11 +43,79 @@ class PhishGuardProtection {
     this.monitorDOMChanges();
   }
 
+    showSuccessAnimation() {
+      console.log('PhishGuard: Showing success animation for benign domain');
+      const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.top = '20px';
+    container.style.right = '20px';
+    container.style.zIndex = '999999';
+    container.style.width = '150px';
+    container.style.height = '170px';
+    container.style.pointerEvents = 'none';
+
+      container.innerHTML = `
+        <style>
+          @keyframes popin {
+            0% {
+              transform: scale(0);
+              opacity: 0;
+            }
+            60% {
+              transform: scale(1.1);
+              opacity: 1;
+            }
+            80% {
+              transform: scale(0.95);
+            }
+            100% {
+              transform: scale(1);
+            }
+          }
+
+          @keyframes popup {
+            0% {
+              opacity: 1;
+              transform: scale(1);
+            }
+            100% {
+              opacity: 0;
+              transform: scale(1.2);
+            }
+          }
+
+          img {
+            width: 100%;
+            height: 100%;
+            animation: popin 0.6s ease forwards;
+            transform-origin: center center;
+          }
+        </style>
+
+        <img src="${chrome.runtime.getURL('success.png')}" alt="Success Shield" />
+      `;
+
+      document.body.appendChild(container);
+      console.log('PhishGuard: Success animation container added to page');
+
+      // Animation: fade out after 3 seconds with popup effect
+      setTimeout(() => {
+        container.style.transition = 'opacity 1s ease-out, transform 1s ease-out';
+        container.style.opacity = '0';
+        container.style.transform = 'scale(1.2)';
+        console.log('PhishGuard: Success animation fading out');
+        setTimeout(() => {
+          container.remove();
+          console.log('PhishGuard: Success animation removed');
+        }, 1000);
+      }, 3000);
+    }
+
   async loadBenignData() {
     try {
       const response = await fetch(chrome.runtime.getURL('benign.json'));
       const data = await response.json();
-      this.benignData = new Set(data.map(url => new URL(url).hostname));
+      this.benignData = new Set(data.map(url => new URL(url).hostname.replace(/^www\./, '')));
       console.log('Benign data loaded:', this.benignData.size, 'entries');
     } catch (error) {
       console.error('Failed to load benign data:', error);
@@ -62,6 +145,30 @@ class PhishGuardProtection {
     }
   }
 
+  detectRedirects() {
+    // Detect meta refresh redirects
+    const metaRefresh = document.querySelector('meta[http-equiv="refresh"]');
+    if (metaRefresh) {
+      const content = metaRefresh.getAttribute('content');
+      if (content) {
+        const urlMatch = content.match(/url=(.+)/i);
+        if (urlMatch) {
+          const redirectUrl = urlMatch[1].trim();
+          try {
+            const fullUrl = new URL(redirectUrl, window.location.href).href;
+            console.log('Detected meta refresh redirect to:', fullUrl);
+            chrome.runtime.sendMessage({ type: 'CHECK_REDIRECT', url: fullUrl });
+          } catch (e) {
+            console.warn('Invalid redirect URL:', redirectUrl);
+          }
+        }
+      }
+    }
+
+    // TODO: Add detection for JavaScript redirects (location.href, window.location, etc.)
+    // This would require monitoring script execution or DOM changes
+  }
+
   // Step 1: Compute risk score from URL lexical features and DOM cues
   computeRiskScore() {
     let score = 0;
@@ -85,9 +192,27 @@ class PhishGuardProtection {
 
     console.log(`PhishGuard: Risk score computed: ${this.riskScore}`);
 
-    // Step 2: If score exceeds threshold or sensitive patterns present, check Safe Browsing
+    // Step 2: If score exceeds threshold or sensitive patterns present, send to background for Safe Browsing and backend analysis
     if (this.riskScore >= 50 || this.hasSensitivePatterns()) {
-      this.checkSafeBrowsing(url);
+      chrome.runtime.sendMessage({
+        type: 'PERFORM_EXTERNAL_ANALYSIS',
+        url: window.location.href,
+        riskScore: this.riskScore,
+        hasPasswordFields: document.querySelectorAll('input[type="password"]').length > 0,
+        hasLoginForm: this.detectLoginForm(),
+        userAgent: navigator.userAgent,
+        referrer: document.referrer,
+        timestamp: Date.now()
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error("Error sending PERFORM_EXTERNAL_ANALYSIS message:", chrome.runtime.lastError.message);
+          return;
+        }
+        if (response && response.threat) {
+          this.threatInfo = response.threat;
+          this.showThreatWarning();
+        }
+      });
     }
   }
 
@@ -181,101 +306,7 @@ class PhishGuardProtection {
     return sensitivePatterns.some(pattern => pattern.test(document.body.innerText));
   }
 
-  // Step 2: Check Safe Browsing v4 if risk score is high
-  async checkSafeBrowsing(url) {
-    const apiKey = 'AIzaSyBRAURluW18zAoKggEcVB16azODh1ohiks';
-    const safeBrowsingUrl = `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${apiKey}`;
-
-    const requestBody = {
-      client: {
-        clientId: "phishguard-extension",
-        clientVersion: "1.0"
-      },
-      threatInfo: {
-        threatTypes: ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE"],
-        platformTypes: ["ANY_PLATFORM"],
-        threatEntryTypes: ["URL"],
-        threatEntries: [{ url: url }]
-      }
-    };
-
-    try {
-      const response = await fetch(safeBrowsingUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
-      });
-
-      const data = await response.json();
-
-      if (data.matches && data.matches.length > 0) {
-        // Threat detected by Safe Browsing
-        this.threatInfo = {
-          phish_id: 'safebrowsing',
-          url: hostname,
-          target: data.matches[0].threatType,
-          verified: 'safebrowsing',
-          online: 'yes',
-          risk_level: 'critical',
-          threat_type: 'malware',
-          reason: `Safe Browsing detected: ${data.matches[0].threatType}`
-        };
-        this.showThreatWarning();
-      } else {
-        // No threat from Safe Browsing, but high risk score - send to backend for further analysis
-        this.sendToBackend(url);
-      }
-    } catch (error) {
-      console.error('Safe Browsing check failed:', error);
-      // If Safe Browsing fails, still send to backend
-      this.sendToBackend(url);
-    }
-  }
-
-  // Step 3: Send to backend for richer analysis
-  async sendToBackend(url) {
-    const backendUrl = 'http://localhost:3001/analyze'; // Local backend URL
-
-    const metadata = {
-      url: url,
-      riskScore: this.riskScore,
-      userAgent: navigator.userAgent,
-      referrer: document.referrer,
-      hasPasswordFields: document.querySelectorAll('input[type="password"]').length > 0,
-      hasLoginForm: this.detectLoginForm(),
-      timestamp: Date.now()
-    };
-
-    try {
-      const response = await fetch(backendUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(metadata)
-      });
-
-      const result = await response.json();
-
-      if (result.isThreat) {
-        this.threatInfo = {
-          phish_id: 'backend',
-          url: result.url,
-          target: result.target,
-          verified: 'backend',
-          online: 'yes',
-          risk_level: result.riskLevel,
-          threat_type: result.threatType,
-          reason: result.reason
-        };
-        this.showThreatWarning();
-      }
-    } catch (error) {
-      console.error('Backend analysis failed:', error);
-    }
-  }
+  
 
   detectLoginForm() {
     const forms = document.querySelectorAll('form');
@@ -308,22 +339,33 @@ class PhishGuardProtection {
         chrome.runtime.sendMessage({ type: 'CHECK_URL', url: window.location.href }, resolve);
       });
 
+      // Remove any existing overlay before checking the current site
+      this.removeThreatOverlay();
+
       if (response && response.threat) {
         this.threatInfo = response.threat;
         await this.showThreatWarning();
         return; // Prevent duplicate warnings
+      } else {
+        // If no threat, ensure threatInfo is null and remove any overlay
+        this.threatInfo = null;
+        this.removeThreatOverlay();
       }
 
-      // Get session threat from background
-      const sessionThreatResp = await new Promise(resolve => {
-        chrome.runtime.sendMessage({ type: 'GET_SESSION_THREAT', tabId }, resolve);
-      });
-      if (sessionThreatResp && sessionThreatResp.threat && !this.threatInfo) {
-        this.threatInfo = sessionThreatResp.threat;
-        await this.showThreatWarning();
-      }
+      // Get session threat from background (only if no direct threat found)
+      
     } catch (error) {
       console.error('Site check failed:', error);
+      // Ensure overlay is removed even on error if no threat was confirmed
+      this.threatInfo = null;
+      this.removeThreatOverlay();
+    }
+  }
+
+  removeThreatOverlay() {
+    const existingOverlay = document.querySelector('.phishguard-threat-overlay');
+    if (existingOverlay) {
+      existingOverlay.remove();
     }
   }
 
